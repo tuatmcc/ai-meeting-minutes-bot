@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 
 export type VoiceGatewayConfig = {
 	token: string;
+	workerApiUrl: string;
+	workerApiToken: string;
+	asrApiUrl: string;
 	guildId: string;
 	voiceChannelId: string;
 	recordSeconds: number;
@@ -41,6 +44,25 @@ function positiveNumberEnv(name: string, defaultValue: number): number {
 	return value;
 }
 
+function workerApiUrlEnv(): string {
+	const value = requiredEnv('WORKER_API_URL');
+	const url = new URL(value);
+	const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+	if (url.protocol !== 'https:' && !(isLocal && url.protocol === 'http:')) {
+		throw new Error('WORKER_API_URL must use HTTPS, except for a local development URL');
+	}
+	return url.toString();
+}
+
+function asrApiUrlEnv(): string {
+	const value = requiredEnv('ASR_API_URL');
+	const url = new URL(value);
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error('ASR_API_URL must use HTTP or HTTPS');
+	}
+	return url.toString();
+}
+
 function parseDiscordChannelId(value: string): { channelId: string; guildId?: string } {
 	if (/^\d+$/.test(value)) {
 		return { channelId: value };
@@ -58,6 +80,9 @@ export function loadConfig(): VoiceGatewayConfig {
 	const parsedChannel = parseDiscordChannelId(requiredEnv('DISCORD_VOICE_CHANNEL_ID'));
 	return {
 		token: requiredEnv('DISCORD_BOT_TOKEN'),
+		workerApiUrl: workerApiUrlEnv(),
+		workerApiToken: requiredEnv('WORKER_API_TOKEN'),
+		asrApiUrl: asrApiUrlEnv(),
 		guildId: process.env.DISCORD_GUILD_ID?.trim() || parsedChannel.guildId || requiredEnv('DISCORD_GUILD_ID'),
 		voiceChannelId: parsedChannel.channelId,
 		recordSeconds: positiveNumberEnv('RECORD_SECONDS', 30),

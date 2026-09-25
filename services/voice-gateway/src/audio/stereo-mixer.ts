@@ -26,19 +26,22 @@ export class StereoPcmMixer {
 	private lateFramesDropped = 0;
 	private closed = false;
 
-	private constructor(private readonly writer: WavWriter) {
+	private constructor(
+		private readonly writer: WavWriter,
+		private readonly onPcmFrame?: (frame: Buffer) => void,
+	) {
 		this.timer = setInterval(() => this.flushByClock(), FRAME_DURATION_MS);
 		this.timer.unref();
 	}
 
-	static async create(filePath: string): Promise<StereoPcmMixer> {
+	static async create(filePath: string, onPcmFrame?: (frame: Buffer) => void): Promise<StereoPcmMixer> {
 		const writer = await WavWriter.create({
 			filePath,
 			sampleRate: SAMPLE_RATE,
 			channels: CHANNELS,
 			bitsPerSample: 16,
 		});
-		return new StereoPcmMixer(writer);
+		return new StereoPcmMixer(writer, onPcmFrame);
 	}
 
 	addPcm(firstFrameIndex: number, pcm: Buffer): void {
@@ -97,6 +100,7 @@ export class StereoPcmMixer {
 			}
 
 			this.writer.writePcm16le(output);
+			this.onPcmFrame?.(output);
 			this.nextFrameToFlush += 1;
 		}
 	}

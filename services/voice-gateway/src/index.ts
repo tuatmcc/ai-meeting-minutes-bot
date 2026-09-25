@@ -1,9 +1,18 @@
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel } from '@discordjs/voice';
 import { loadConfig } from './config.js';
+import { AsrApi } from './clients/asr-api.js';
+import { uploadToR2 } from './clients/r2-upload.js';
+import { SessionApi } from './clients/session-api.js';
+import type { AsrStream } from './clients/asr-stream.js';
 import { VoiceRecorder } from './discord/voice-recorder.js';
 
 const config = loadConfig();
+const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
+const asrApi = new AsrApi(config.asrApiUrl);
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
@@ -38,37 +47,88 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 		selfDeaf: false,
 		selfMute: true,
 	});
-
 	connection.on('stateChange', (oldState, newState) => {
 		console.log(`[voice] ${oldState.status} -> ${newState.status}`);
 	});
 
-	await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-	console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
+	let sessionId: string | undefined;
+	let recorder: VoiceRecorder | undefined;
+	let asrStream: AsrStream | undefined;
+	try {
+		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
+		console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
 
-	const sessionId = new Date().toISOString().replace(/[:.]/g, '-');
-	const recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, sessionId);
-	recorder.start();
-	console.log(`[recording] started: ${sessionId}`);
+		const session = await sessionApi.startSession(guild.id, channel.id, randomUUID());
+		sessionId = session.sessionId;
+		asrStream = await asrApi.openStream((partial) => {
+			console.log(`[transcription] partial updated: ${sessionId} (${partial.text.length} characters)`);
+		});
+		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, sessionId, (pcm) => asrStream?.sendAudio(pcm));
+		recorder.start();
+		await sessionApi.markRecordingStarted(guild.id, channel.id, sessionId);
+		console.log(`[recording] started: ${sessionId}`);
 
-	stopRecording = async () => {
-		if (stopping) {
-			return;
+		stopRecording = async () => {
+			if (stopping || !recorder || !sessionId) {
+				return;
+			}
+			stopping = true;
+
+			try {
+				const result = await recorder.stop();
+				await sessionApi.markProcessingStarted(guild.id, channel.id, sessionId);
+				const transcription = await asrStream!.finish();
+				const manifestPath = join(dirname(result.filePath), 'manifest.json');
+				const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+				await writeFile(manifestPath, `${JSON.stringify({ ...manifest, transcription }, null, 2)}\n`, 'utf8');
+
+				const uploads = await sessionApi.createUploadTargets(guild.id, channel.id, sessionId);
+				const manifestUpload = uploads.find(({ key }) => key.endsWith('/manifest.json'));
+				if (!manifestUpload) {
+					throw new Error('Worker did not return an R2 manifest upload target');
+				}
+
+				const manifestSizeBytes = await uploadToR2(manifestUpload, join(dirname(result.filePath), 'manifest.json'));
+				await sessionApi.completeSession(guild.id, channel.id, sessionId, {
+					endedAt: result.endedAt,
+					durationMs: result.durationMs,
+					manifestSizeBytes,
+				});
+				console.log(`[transcription] saved to R2: ${sessionId} (${transcription.model})`);
+				await rm(dirname(result.filePath), { recursive: true, force: true }).catch((error: unknown) => {
+					console.warn('[recording] could not remove local temporary files', error);
+				});
+			} catch (error) {
+				console.error(`[recording] finalization failed: ${sessionId}`, error);
+				await sessionApi.failSession(guild.id, channel.id, sessionId, 'recording_finalize_failed').catch((failure: unknown) => {
+					console.error(`[session] failed to record finalization error: ${sessionId}`, failure);
+				});
+				process.exitCode = 1;
+			} finally {
+				asrStream?.abort();
+				connection.destroy();
+				await client.destroy();
+			}
+		};
+
+		setTimeout(() => {
+			void stopRecording?.();
+		}, config.recordSeconds * 1000).unref();
+	} catch (error) {
+		asrStream?.abort();
+		if (recorder) {
+			await recorder.stop().catch((stopError: unknown) => {
+				console.error('[recording] cleanup after startup failure failed', stopError);
+			});
 		}
-		stopping = true;
-
-		const result = await recorder.stop();
-		console.log(`[recording] saved: ${result.filePath}`);
-		console.log(`[recording] manifest: ${config.recordingsDir}/${sessionId}/manifest.json`);
-		console.log(`[recording] frames=${result.stats.framesWritten} late=${result.stats.lateFramesDropped}`);
-
+		if (sessionId) {
+			await sessionApi.failSession(guild.id, channel.id, sessionId, 'recording_start_failed').catch((failure: unknown) => {
+				console.error(`[session] failed to record startup error: ${sessionId}`, failure);
+			});
+		}
 		connection.destroy();
-		await client.destroy();
-	};
-
-	setTimeout(() => {
-		void stopRecording?.();
-	}, config.recordSeconds * 1000).unref();
+		throw error;
+	}
 }
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -83,8 +143,15 @@ client.on(Events.Error, (error) => {
 	console.error('[discord] client error', error);
 });
 
-process.once('SIGINT', () => {
-	void stopRecording?.();
-});
+async function shutdown(): Promise<void> {
+	if (stopRecording) {
+		await stopRecording();
+		return;
+	}
+	await client.destroy();
+}
+
+process.once('SIGINT', () => void shutdown());
+process.once('SIGTERM', () => void shutdown());
 
 await client.login(config.token);

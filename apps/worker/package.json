@@ -9,6 +9,9 @@
 		"test": "vitest",
 		"cf-typegen": "wrangler types"
 	},
+	"dependencies": {
+		"aws4fetch": "^1.0.20"
+	},
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "^1.0.0",
 		"typescript": "^5.5.2",

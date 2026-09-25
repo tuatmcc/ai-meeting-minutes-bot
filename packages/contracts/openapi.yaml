@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: AI Meeting Minutes Session API
+  version: 1.0.0
+security:
+  - gatewayToken: []
+paths:
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+    post:
+      operationId: startSession
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '201':
+          description: Session created or returned by an idempotent replay.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/active:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+    get:
+      operationId: getActiveSession
+      responses:
+        '200':
+          description: Current active session, if any.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session]
+                properties:
+                  session:
+                    oneOf:
+                      - $ref: '#/components/schemas/Session'
+                      - type: 'null'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/recording-started:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: markRecordingStarted
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/processing-started:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: markProcessingStarted
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/upload-targets:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: createUploadTargets
+      responses:
+        '200':
+          description: Short-lived direct-to-R2 PUT URL for the session manifest.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, uploads]
+                properties:
+                  session:
+                    $ref: '#/components/schemas/Session'
+                  uploads:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UploadTarget'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/completed:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: completeSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endedAt, durationMs, manifestSizeBytes]
+              properties:
+                endedAt:
+                  type: string
+                  format: date-time
+                durationMs:
+                  type: integer
+                  minimum: 0
+                manifestSizeBytes:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/failed:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: failSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [errorCode]
+              properties:
+                errorCode:
+                  type: string
+                  pattern: '^[a-z0-9_-]{1,80}$'
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+components:
+  securitySchemes:
+    gatewayToken:
+      type: http
+      scheme: bearer
+  parameters:
+    guildId:
+      in: path
+      name: guildId
+      required: true
+      schema:
+        type: string
+        pattern: '^\d{17,20}$'
+    channelId:
+      in: path
+      name: channelId
+      required: true
+      schema:
+        type: string
+        pattern: '^\d{17,20}$'
+    sessionId:
+      in: path
+      name: sessionId
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Session:
+      type: object
+      required:
+        - sessionId
+        - guildId
+        - channelId
+        - state
+        - createdAt
+        - startedAt
+        - endedAt
+        - manifestKey
+        - durationMs
+        - manifestSizeBytes
+        - errorCode
+      properties:
+        sessionId: { type: string, format: uuid }
+        guildId: { type: string }
+        channelId: { type: string }
+        state:
+          type: string
+          enum: [starting, recording, processing, completed, failed]
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        manifestKey: { type: string }
+        durationMs: { type: [integer, 'null'], minimum: 0 }
+        manifestSizeBytes: { type: [integer, 'null'], minimum: 1 }
+        errorCode: { type: [string, 'null'] }
+    UploadTarget:
+      type: object
+      required: [key, url, contentType]
+      properties:
+        key: { type: string }
+        url: { type: string, format: uri }
+        contentType: { type: string, enum: [application/json] }
+    SessionResponse:
+      type: object
+      required: [session]
+      properties:
+        session: { $ref: '#/components/schemas/Session' }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code]
+          properties:
+            code: { type: string }
+  responses:
+    SessionResponse:
+      description: Session state.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionResponse' }
+    Unauthorized:
+      description: Missing or invalid gateway bearer token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Session does not exist.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Another session is active or this transition is invalid.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Invalid request path, idempotency key, or body.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
