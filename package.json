@@ -14,7 +14,6 @@
 		"lint:python": "uv run --directory services/asr ruff check",
 		"lint": "pnpm lint:ts && pnpm lint:python",
 		"test:worker": "pnpm --filter @ai-meeting-minutes/worker test",
-		"typecheck": "pnpm --filter @ai-meeting-minutes/worker typecheck",
 		"typegen:worker": "pnpm --filter @ai-meeting-minutes/worker cf-typegen"
 	},
 	"devDependencies": {
