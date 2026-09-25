@@ -17,7 +17,7 @@ type ActiveUserStream = {
 
 export type VoiceRecordingResult = {
 	sessionId: string;
-	filePath: string;
+	sessionDir: string;
 	startedAt: string;
 	endedAt: string;
 	durationMs: number;
@@ -47,7 +47,7 @@ export class VoiceRecorder {
 		const sessionDir = join(outputDir, sessionId);
 		await mkdir(sessionDir, { recursive: true });
 		const encoder = new StreamAudioEncoder();
-		const mixer = await StereoPcmMixer.create(join(sessionDir, 'mixed-48khz-stereo.wav'), (frame) => {
+		const mixer = StereoPcmMixer.create((frame) => {
 			onAsrAudio?.(encoder.encode48kStereoPcm16le(frame));
 		});
 		return new VoiceRecorder(receiver, mixer, sessionId, sessionDir);
@@ -128,11 +128,11 @@ export class VoiceRecorder {
 		}
 		this.activeStreams.clear();
 
-		const stats = await this.mixer.close();
+		const stats = this.mixer.close();
 		const endedAt = new Date();
 		const result: VoiceRecordingResult = {
 			sessionId: this.sessionId,
-			filePath: join(this.outputDir, 'mixed-48khz-stereo.wav'),
+			sessionDir: this.outputDir,
 			startedAt: new Date(this.startedAt).toISOString(),
 			endedAt: endedAt.toISOString(),
 			durationMs: endedAt.getTime() - this.startedAt,

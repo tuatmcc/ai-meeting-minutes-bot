@@ -6,10 +6,9 @@ export type VoiceGatewayConfig = {
 	token: string;
 	workerApiUrl: string;
 	workerApiToken: string;
+	workerControlToken: string;
+	workerControlUrl: string;
 	asrApiUrl: string;
-	guildId: string;
-	voiceChannelId: string;
-	recordSeconds: number;
 	recordingsDir: string;
 };
 
@@ -27,19 +26,6 @@ function requiredEnv(name: string): string {
 	const value = process.env[name]?.trim();
 	if (!value) {
 		throw new Error(`Missing required environment variable: ${name}`);
-	}
-	return value;
-}
-
-function positiveNumberEnv(name: string, defaultValue: number): number {
-	const rawValue = process.env[name];
-	if (!rawValue) {
-		return defaultValue;
-	}
-
-	const value = Number(rawValue);
-	if (!Number.isFinite(value) || value <= 0) {
-		throw new Error(`${name} must be a positive number`);
 	}
 	return value;
 }
@@ -63,29 +49,21 @@ function asrApiUrlEnv(): string {
 	return url.toString();
 }
 
-function parseDiscordChannelId(value: string): { channelId: string; guildId?: string } {
-	if (/^\d+$/.test(value)) {
-		return { channelId: value };
-	}
-
-	const urlMatch = value.match(/^https:\/\/discord\.com\/channels\/(\d+)\/(\d+)(?:\/.*)?$/);
-	if (urlMatch) {
-		return { guildId: urlMatch[1], channelId: urlMatch[2] };
-	}
-
-	throw new Error('DISCORD_VOICE_CHANNEL_ID must be a Discord channel ID or channel URL');
+function workerControlUrl(workerApiUrl: string): string {
+	const url = new URL('/api/v1/gateway-control/connect', workerApiUrl);
+	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+	return url.toString();
 }
 
 export function loadConfig(): VoiceGatewayConfig {
-	const parsedChannel = parseDiscordChannelId(requiredEnv('DISCORD_VOICE_CHANNEL_ID'));
+	const workerApiUrl = workerApiUrlEnv();
 	return {
 		token: requiredEnv('DISCORD_BOT_TOKEN'),
-		workerApiUrl: workerApiUrlEnv(),
+		workerApiUrl,
 		workerApiToken: requiredEnv('WORKER_API_TOKEN'),
+		workerControlToken: requiredEnv('WORKER_CONTROL_TOKEN'),
+		workerControlUrl: workerControlUrl(workerApiUrl),
 		asrApiUrl: asrApiUrlEnv(),
-		guildId: process.env.DISCORD_GUILD_ID?.trim() || parsedChannel.guildId || requiredEnv('DISCORD_GUILD_ID'),
-		voiceChannelId: parsedChannel.channelId,
-		recordSeconds: positiveNumberEnv('RECORD_SECONDS', 30),
 		recordingsDir: resolve(process.env.RECORDINGS_DIR ?? 'var/recordings'),
 	};
 }

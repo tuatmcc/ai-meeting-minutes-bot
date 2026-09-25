@@ -1,5 +1,3 @@
-import { WavWriter } from './wav-writer.js';
-
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
 const FRAME_SAMPLES = 960;
@@ -13,9 +11,9 @@ type FrameSlot = {
 };
 
 export type StereoMixerStats = {
-	framesWritten: number;
+	framesMixed: number;
 	lateFramesDropped: number;
-	bytesWritten: number;
+	bytesMixed: number;
 };
 
 export class StereoPcmMixer {
@@ -24,24 +22,16 @@ export class StereoPcmMixer {
 	private readonly timer: NodeJS.Timeout;
 	private nextFrameToFlush = 0;
 	private lateFramesDropped = 0;
+	private bytesMixed = 0;
 	private closed = false;
 
-	private constructor(
-		private readonly writer: WavWriter,
-		private readonly onPcmFrame?: (frame: Buffer) => void,
-	) {
+	private constructor(private readonly onPcmFrame?: (frame: Buffer) => void) {
 		this.timer = setInterval(() => this.flushByClock(), FRAME_DURATION_MS);
 		this.timer.unref();
 	}
 
-	static async create(filePath: string, onPcmFrame?: (frame: Buffer) => void): Promise<StereoPcmMixer> {
-		const writer = await WavWriter.create({
-			filePath,
-			sampleRate: SAMPLE_RATE,
-			channels: CHANNELS,
-			bitsPerSample: 16,
-		});
-		return new StereoPcmMixer(writer, onPcmFrame);
+	static create(onPcmFrame?: (frame: Buffer) => void): StereoPcmMixer {
+		return new StereoPcmMixer(onPcmFrame);
 	}
 
 	addPcm(firstFrameIndex: number, pcm: Buffer): void {
@@ -99,13 +89,13 @@ export class StereoPcmMixer {
 				this.frames.delete(this.nextFrameToFlush);
 			}
 
-			this.writer.writePcm16le(output);
+			this.bytesMixed += output.length;
 			this.onPcmFrame?.(output);
 			this.nextFrameToFlush += 1;
 		}
 	}
 
-	async close(): Promise<StereoMixerStats> {
+	close(): StereoMixerStats {
 		if (this.closed) {
 			return this.stats;
 		}
@@ -114,16 +104,15 @@ export class StereoPcmMixer {
 
 		const elapsedFrames = Math.ceil((Date.now() - this.startedAt) / FRAME_DURATION_MS);
 		this.flushThrough(elapsedFrames - 1);
-		await this.writer.close();
 
 		return this.stats;
 	}
 
 	private get stats(): StereoMixerStats {
 		return {
-			framesWritten: this.nextFrameToFlush,
+			framesMixed: this.nextFrameToFlush,
 			lateFramesDropped: this.lateFramesDropped,
-			bytesWritten: this.writer.bytesWritten,
+			bytesMixed: this.bytesMixed,
 		};
 	}
 }
