@@ -12,7 +12,8 @@
 	},
 	"devDependencies": {
 		"oxfmt": "^0.70.0",
-		"oxlint": "^1.85.0"
+		"oxlint": "^1.85.0",
+		"oxlint-tsgolint": "^7.0.2002"
 	},
 	"packageManager": "pnpm@11.27.0"
 }
