@@ -1,4 +1,4 @@
-import type { AsrTranscription } from './asr-api.js';
+import type { AsrTranscription } from './asr-api.ts';
 
 const SAMPLE_RATE = 16_000;
 const CHUNK_SECONDS = 2;

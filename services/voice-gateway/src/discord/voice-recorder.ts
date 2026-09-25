@@ -2,8 +2,8 @@ import { EndBehaviorType, type AudioReceiveStream, type VoiceReceiver } from '@d
 import Prism from 'prism-media';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { StreamAudioEncoder } from '../audio/stream-audio-encoder.js';
-import { StereoPcmMixer, stereoAudioFormat, type StereoMixerStats } from '../audio/stereo-mixer.js';
+import { StreamAudioEncoder } from '../audio/stream-audio-encoder.ts';
+import { StereoPcmMixer, stereoAudioFormat, type StereoMixerStats } from '../audio/stereo-mixer.ts';
 
 const FRAME_BYTES = stereoAudioFormat.frameSamples * stereoAudioFormat.channels * 2;
 const FRAME_DURATION_MS = (stereoAudioFormat.frameSamples / stereoAudioFormat.sampleRate) * 1000;

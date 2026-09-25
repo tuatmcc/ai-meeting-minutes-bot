@@ -2,13 +2,13 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
-import { loadConfig } from './config.js';
-import { AsrApi } from './clients/asr-api.js';
-import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.js';
-import { uploadToR2 } from './clients/r2-upload.js';
-import { SessionApi } from './clients/session-api.js';
-import type { AsrStream } from './clients/asr-stream.js';
-import { VoiceRecorder } from './discord/voice-recorder.js';
+import { loadConfig } from './config.ts';
+import { AsrApi } from './clients/asr-api.ts';
+import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
+import { uploadToR2 } from './clients/r2-upload.ts';
+import { SessionApi } from './clients/session-api.ts';
+import type { AsrStream } from './clients/asr-stream.ts';
+import { VoiceRecorder } from './discord/voice-recorder.ts';
 
 type ActiveRecording = {
 	command: GatewayCommand;

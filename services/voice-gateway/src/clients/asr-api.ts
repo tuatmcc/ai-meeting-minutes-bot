@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { AsrStream } from './asr-stream.js';
+import { AsrStream } from './asr-stream.ts';
 
 export type AsrTranscription = {
 	model: string;
