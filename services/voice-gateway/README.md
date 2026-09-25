@@ -29,6 +29,9 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 - `RECORD_SECONDS`: 録音秒数。デフォルトは `30`
 - `RECORDINGS_DIR`: 保存先。デフォルトはリポジトリ直下の `var/recordings`
 
+`DISCORD_GUILD_ID`と`DISCORD_VOICE_CHANNEL_ID`には数値IDを指定できます。
+`DISCORD_VOICE_CHANNEL_ID`はDiscordのチャンネルURLでも指定できます。
+
 出力例:
 
 ```text

@@ -1,4 +1,4 @@
-import { Events, GatewayIntentBits, Client } from 'discord.js';
+import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel } from '@discordjs/voice';
 import { loadConfig } from './config.js';
 import { VoiceRecorder } from './discord/voice-recorder.js';
@@ -11,11 +11,24 @@ const client = new Client({
 let stopping = false;
 let stopRecording: (() => Promise<void>) | undefined;
 
-client.once(Events.ClientReady, async (readyClient) => {
+async function startRecording(readyClient: Client<true>): Promise<void> {
 	const guild = await readyClient.guilds.fetch(config.guildId);
 	const channel = await guild.channels.fetch(config.voiceChannelId);
 	if (!channel?.isVoiceBased()) {
 		throw new Error(`Channel ${config.voiceChannelId} is not a voice channel`);
+	}
+
+	const botMember = await guild.members.fetch(readyClient.user.id);
+	const permissions = channel.permissionsFor(botMember);
+	const missingPermissions = [
+		{ name: 'ViewChannel', permission: PermissionsBitField.Flags.ViewChannel },
+		{ name: 'Connect', permission: PermissionsBitField.Flags.Connect },
+	].filter(({ permission }) => !permissions?.has(permission));
+	if (missingPermissions.length > 0) {
+		throw new Error(`Missing permissions in ${channel.name}: ${missingPermissions.map(({ name }) => name).join(', ')}`);
+	}
+	if (!permissions.has(PermissionsBitField.Flags.Speak)) {
+		console.warn(`[voice] Speak permission is missing in ${channel.name}; receiving may still work`);
 	}
 
 	const connection = joinVoiceChannel({
@@ -56,6 +69,14 @@ client.once(Events.ClientReady, async (readyClient) => {
 	setTimeout(() => {
 		void stopRecording?.();
 	}, config.recordSeconds * 1000).unref();
+}
+
+client.once(Events.ClientReady, (readyClient) => {
+	void startRecording(readyClient).catch(async (error: unknown) => {
+		console.error('[voice] startup failed', error);
+		await client.destroy();
+		process.exitCode = 1;
+	});
 });
 
 client.on(Events.Error, (error) => {
