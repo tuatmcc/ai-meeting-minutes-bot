@@ -6,7 +6,7 @@
 		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker deploy",
 		"fmt": "oxfmt && uv format --preview-features format-command --directory services/asr",
 		"fmt:check": "oxfmt --check && uv format --preview-features format-command --check --directory services/asr",
-		"lint": "oxlint",
+		"lint": "oxlint && uv run --directory services/asr ruff check",
 		"test:worker": "pnpm --filter @ai-meeting-minutes/worker test",
 		"typegen:worker": "pnpm --filter @ai-meeting-minutes/worker cf-typegen"
 	},
