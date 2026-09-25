@@ -1,0 +1,17 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"printWidth": 140,
+	"singleQuote": true,
+	"semi": true,
+	"useTabs": true,
+	"ignorePatterns": ["apps/worker/worker-configuration.d.ts", "flake.lock", "services/asr/uv.lock"],
+	"overrides": [
+		{
+			"files": ["**/*.{yml,yaml}"],
+			"options": {
+				"useTabs": false,
+				"tabWidth": 2
+			}
+		}
+	]
+}
