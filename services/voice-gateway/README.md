@@ -27,7 +27,7 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 任意の環境変数:
 
 - `RECORD_SECONDS`: 録音秒数。デフォルトは `30`
-- `RECORDINGS_DIR`: 保存先。デフォルトはリポジトリ直下の `var/recordings`
+- `RECORDINGS_DIR`: 保存先。デフォルトはこのサービス配下の `var/recordings`
 
 `DISCORD_GUILD_ID`と`DISCORD_VOICE_CHANNEL_ID`には数値IDを指定できます。
 `DISCORD_VOICE_CHANNEL_ID`はDiscordのチャンネルURLでも指定できます。
@@ -35,7 +35,7 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 出力例:
 
 ```text
-var/recordings/2026-09-25T12-00-00-000Z/
+services/voice-gateway/var/recordings/2026-09-25T12-00-00-000Z/
 ├── manifest.json
 └── mixed-48khz-stereo.wav
 ```
