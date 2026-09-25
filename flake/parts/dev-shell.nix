@@ -3,7 +3,7 @@
     packages = with pkgs; [
       uv
       pnpm
-      nodejs-slim_26
+      nodejs-slim_24
     ];
   };
 }; }
