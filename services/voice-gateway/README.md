@@ -12,7 +12,7 @@ Qwen3-ASRによる文字起こしは `services/asr` が担当します。
 - `manifest.json`への録音メタデータ保存
 
 現在は検証用に、起動すると指定されたVoice Channelへ接続して録音し、
-録音終了後にプロセスを終了します。セッション状態はCloudflare WorkerのVC単位Durable Objectで管理し、manifestのみR2へアップロードします。WAVはR2に送らず、ASR連携まではローカルに残します。録音のセグメント化とpause/resumeは次の段階で追加します。
+録音終了後にプロセスを終了します。セッション状態はCloudflare WorkerのVC単位Durable Objectで管理します。録音WAVを `ASR_API_URL` の `/transcribe` に送り、文字起こしを含むmanifestのみR2へアップロードします。成功後はローカル録音を削除し、ASRやアップロードに失敗した場合は調査用に残します。録音のセグメント化とpause/resumeは次の段階で追加します。
 
 ## 起動
 
@@ -22,11 +22,12 @@ export DISCORD_GUILD_ID='...'
 export DISCORD_VOICE_CHANNEL_ID='...'
 export WORKER_API_URL='http://localhost:8787'
 export WORKER_API_TOKEN='same-value-as-GATEWAY_API_TOKEN'
+export ASR_API_URL='http://lingsha:8000'
 
 pnpm --filter @ai-meeting-minutes/voice-gateway dev
 ```
 
-`WORKER_API_URL` はWorkerのURL、`WORKER_API_TOKEN` はWorker側の `GATEWAY_API_TOKEN` と同じ値です。manifest用のR2 PUT URLはWorkerが発行するため、gatewayにR2 API認証情報を設定する必要はありません。
+`WORKER_API_URL` はWorkerのURL、`WORKER_API_TOKEN` はWorker側の `GATEWAY_API_TOKEN` と同じ値です。`ASR_API_URL` はASRサーバーのベースURLです。manifest用のR2 PUT URLはWorkerが発行するため、gatewayにR2 API認証情報を設定する必要はありません。
 
 任意の環境変数:
 
@@ -44,6 +45,6 @@ services/voice-gateway/var/recordings/2026-09-25T12-00-00-000Z/
 └── mixed-48khz-stereo.wav
 ```
 
-manifestはR2へアップロードし、WAVはローカルの録音フォルダに残ります。現時点では3060のASRへの転送はまだ接続していません。
+ASR成功後にWAVとローカルmanifestは削除されます。失敗した場合は録音フォルダに残ります。
 
 Voice受信には、Botが対象Guildに所属し、対象Voice Channelへの接続権限を持っている必要があります。

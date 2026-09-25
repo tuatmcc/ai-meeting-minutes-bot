@@ -2,7 +2,7 @@ export type Session = {
 	sessionId: string;
 	guildId: string;
 	channelId: string;
-	state: 'starting' | 'recording' | 'uploading' | 'completed' | 'failed';
+	state: 'starting' | 'recording' | 'processing' | 'completed' | 'failed';
 	manifestKey: string;
 };
 
@@ -32,6 +32,10 @@ export class SessionApi {
 
 	async markRecordingStarted(guildId: string, channelId: string, sessionId: string): Promise<void> {
 		await this.request(this.sessionPath(guildId, channelId, sessionId, 'recording-started'), { method: 'POST' });
+	}
+
+	async markProcessingStarted(guildId: string, channelId: string, sessionId: string): Promise<void> {
+		await this.request(this.sessionPath(guildId, channelId, sessionId, 'processing-started'), { method: 'POST' });
 	}
 
 	async createUploadTargets(guildId: string, channelId: string, sessionId: string): Promise<UploadTarget[]> {

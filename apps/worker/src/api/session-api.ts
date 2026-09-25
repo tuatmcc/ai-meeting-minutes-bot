@@ -62,6 +62,8 @@ async function routeSessionApi(request: Request, env: WorkerEnv): Promise<Respon
 	switch (segments[8]) {
 		case 'recording-started':
 			return operationResponse(await session.markRecordingStarted(sessionId));
+		case 'processing-started':
+			return operationResponse(await session.markProcessingStarted(sessionId));
 		case 'upload-targets': {
 			const result = await session.reserveUpload(sessionId);
 			if (!result.ok) {

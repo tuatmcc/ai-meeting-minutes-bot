@@ -26,7 +26,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 				guild_id TEXT NOT NULL,
 				channel_id TEXT NOT NULL,
 				request_id TEXT NOT NULL UNIQUE,
-				state TEXT NOT NULL CHECK (state IN ('starting', 'recording', 'uploading', 'completed', 'failed')),
+				state TEXT NOT NULL CHECK (state IN ('starting', 'recording', 'processing', 'completed', 'failed')),
 				created_at TEXT NOT NULL,
 				started_at TEXT,
 				ended_at TEXT,
@@ -43,7 +43,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		const row = this.ctx.storage.sql
 			.exec<SessionRow>(
 				`SELECT * FROM sessions
-				 WHERE state IN ('starting', 'recording', 'uploading')
+				 WHERE state IN ('starting', 'recording', 'processing')
 				 ORDER BY created_at DESC LIMIT 1`,
 			)
 			.toArray()[0];
@@ -85,7 +85,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		if (!session) {
 			return { ok: false, code: 'SESSION_NOT_FOUND' };
 		}
-		if (session.state === 'recording' || session.state === 'uploading' || session.state === 'completed') {
+		if (session.state === 'recording' || session.state === 'processing' || session.state === 'completed') {
 			return { ok: true, session: toSession(session) };
 		}
 		if (session.state !== 'starting') {
@@ -100,16 +100,32 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 	}
 
+	async markProcessingStarted(sessionId: string): Promise<SessionOperation> {
+		const session = this.findBySessionId(sessionId);
+		if (!session) {
+			return { ok: false, code: 'SESSION_NOT_FOUND' };
+		}
+		if (session.state === 'processing' || session.state === 'completed') {
+			return { ok: true, session: toSession(session) };
+		}
+		if (session.state !== 'recording') {
+			return { ok: false, code: 'INVALID_SESSION_STATE', session: toSession(session) };
+		}
+
+		this.ctx.storage.sql.exec("UPDATE sessions SET state = 'processing' WHERE session_id = ?", sessionId);
+		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
+	}
+
 	async reserveUpload(sessionId: string): Promise<SessionOperation> {
 		const session = this.findBySessionId(sessionId);
 		if (!session) {
 			return { ok: false, code: 'SESSION_NOT_FOUND' };
 		}
 		if (session.state === 'recording') {
-			this.ctx.storage.sql.exec("UPDATE sessions SET state = 'uploading' WHERE session_id = ?", sessionId);
+			this.ctx.storage.sql.exec("UPDATE sessions SET state = 'processing' WHERE session_id = ?", sessionId);
 			return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 		}
-		if (session.state === 'uploading') {
+		if (session.state === 'processing') {
 			return { ok: true, session: toSession(session) };
 		}
 		return { ok: false, code: 'INVALID_SESSION_STATE', session: toSession(session) };
@@ -126,7 +142,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		if (session.state === 'completed') {
 			return { ok: true, session: toSession(session) };
 		}
-		if (session.state !== 'uploading') {
+		if (session.state !== 'processing') {
 			return { ok: false, code: 'INVALID_SESSION_STATE', session: toSession(session) };
 		}
 
@@ -174,7 +190,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		const row = this.ctx.storage.sql
 			.exec<SessionRow>(
 				`SELECT * FROM sessions
-				 WHERE state IN ('starting', 'recording', 'uploading')
+				 WHERE state IN ('starting', 'recording', 'processing')
 				 ORDER BY created_at DESC LIMIT 1`,
 			)
 			.toArray()[0];

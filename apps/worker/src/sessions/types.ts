@@ -1,4 +1,4 @@
-export type SessionState = 'starting' | 'recording' | 'uploading' | 'completed' | 'failed';
+export type SessionState = 'starting' | 'recording' | 'processing' | 'completed' | 'failed';
 
 export type VoiceSession = {
 	sessionId: string;

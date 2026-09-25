@@ -6,6 +6,7 @@ export type VoiceGatewayConfig = {
 	token: string;
 	workerApiUrl: string;
 	workerApiToken: string;
+	asrApiUrl: string;
 	guildId: string;
 	voiceChannelId: string;
 	recordSeconds: number;
@@ -53,6 +54,15 @@ function workerApiUrlEnv(): string {
 	return url.toString();
 }
 
+function asrApiUrlEnv(): string {
+	const value = requiredEnv('ASR_API_URL');
+	const url = new URL(value);
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error('ASR_API_URL must use HTTP or HTTPS');
+	}
+	return url.toString();
+}
+
 function parseDiscordChannelId(value: string): { channelId: string; guildId?: string } {
 	if (/^\d+$/.test(value)) {
 		return { channelId: value };
@@ -72,6 +82,7 @@ export function loadConfig(): VoiceGatewayConfig {
 		token: requiredEnv('DISCORD_BOT_TOKEN'),
 		workerApiUrl: workerApiUrlEnv(),
 		workerApiToken: requiredEnv('WORKER_API_TOKEN'),
+		asrApiUrl: asrApiUrlEnv(),
 		guildId: process.env.DISCORD_GUILD_ID?.trim() || parsedChannel.guildId || requiredEnv('DISCORD_GUILD_ID'),
 		voiceChannelId: parsedChannel.channelId,
 		recordSeconds: positiveNumberEnv('RECORD_SECONDS', 30),

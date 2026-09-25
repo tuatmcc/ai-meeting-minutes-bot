@@ -70,6 +70,22 @@ paths:
           $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/processing-started:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: markProcessingStarted
+      responses:
+        '200':
+          $ref: '#/components/responses/SessionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/upload-targets:
     parameters:
       - $ref: '#/components/parameters/guildId'
@@ -79,7 +95,7 @@ paths:
       operationId: createUploadTargets
       responses:
         '200':
-          description: Short-lived direct-to-R2 PUT URLs.
+          description: Short-lived direct-to-R2 PUT URL for the session manifest.
           content:
             application/json:
               schema:
@@ -212,7 +228,7 @@ components:
         channelId: { type: string }
         state:
           type: string
-          enum: [starting, recording, uploading, completed, failed]
+          enum: [starting, recording, processing, completed, failed]
         createdAt: { type: string, format: date-time }
         startedAt: { type: [string, 'null'], format: date-time }
         endedAt: { type: [string, 'null'], format: date-time }
