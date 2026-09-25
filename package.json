@@ -5,6 +5,7 @@
 	"scripts": {
 		"dev:worker": "pnpm --filter @ai-meeting-minutes/worker dev",
 		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker deploy",
+		"test:worker": "pnpm --filter @ai-meeting-minutes/worker test",
 		"typegen:worker": "pnpm --filter @ai-meeting-minutes/worker cf-typegen"
 	}
 }
