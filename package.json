@@ -1,0 +1,10 @@
+{
+	"name": "ai-meeting-minutes-bot",
+	"private": true,
+	"packageManager": "pnpm@11.27.0",
+	"scripts": {
+		"dev:worker": "pnpm --filter @ai-meeting-minutes/worker dev",
+		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker deploy",
+		"typegen:worker": "pnpm --filter @ai-meeting-minutes/worker cf-typegen"
+	}
+}
