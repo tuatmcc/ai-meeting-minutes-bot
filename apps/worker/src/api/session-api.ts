@@ -78,7 +78,6 @@ async function routeSessionApi(request: Request, env: WorkerEnv): Promise<Respon
 				await session.completeSession(sessionId, {
 					endedAt: body.endedAt,
 					durationMs: body.durationMs,
-					recordingSizeBytes: body.recordingSizeBytes,
 					manifestSizeBytes: body.manifestSizeBytes,
 				}),
 			);
@@ -117,9 +116,7 @@ async function parseJson(request: Request): Promise<unknown> {
 	}
 }
 
-function isCompletionBody(
-	value: unknown,
-): value is { endedAt: string; durationMs: number; recordingSizeBytes: number; manifestSizeBytes: number } {
+function isCompletionBody(value: unknown): value is { endedAt: string; durationMs: number; manifestSizeBytes: number } {
 	if (typeof value !== 'object' || value === null) {
 		return false;
 	}
@@ -130,9 +127,6 @@ function isCompletionBody(
 		typeof body.durationMs === 'number' &&
 		Number.isFinite(body.durationMs) &&
 		body.durationMs >= 0 &&
-		typeof body.recordingSizeBytes === 'number' &&
-		Number.isSafeInteger(body.recordingSizeBytes) &&
-		body.recordingSizeBytes > 0 &&
 		typeof body.manifestSizeBytes === 'number' &&
 		Number.isSafeInteger(body.manifestSizeBytes) &&
 		body.manifestSizeBytes > 0

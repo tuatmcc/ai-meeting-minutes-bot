@@ -8,10 +8,8 @@ export type VoiceSession = {
 	createdAt: string;
 	startedAt: string | null;
 	endedAt: string | null;
-	recordingKey: string;
 	manifestKey: string;
 	durationMs: number | null;
-	recordingSizeBytes: number | null;
 	manifestSizeBytes: number | null;
 	errorCode: string | null;
 };

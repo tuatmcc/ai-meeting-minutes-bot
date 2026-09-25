@@ -2,7 +2,7 @@
 
 Cloudflare Workerがvoice-gateway向けのセッションAPIを提供します。Discord Interactionとスラッシュコマンドはまだ受け付けません。
 
-各セッションは `guildId:channelId` で決まるDurable Objectに保存され、録音ファイルとmanifestはR2へ直接アップロードします。WorkerはR2の短命なPUT署名付きURLを発行し、gatewayへR2 APIキーを渡しません。
+各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。R2に保存するのはmanifestのみで、WAVはR2へアップロードしません。Workerはmanifest用の短命なPUT署名付きURLを発行し、gatewayへR2 APIキーを渡しません。
 
 ## ローカル開発
 

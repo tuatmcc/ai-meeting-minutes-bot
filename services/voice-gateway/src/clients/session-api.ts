@@ -3,7 +3,6 @@ export type Session = {
 	guildId: string;
 	channelId: string;
 	state: 'starting' | 'recording' | 'uploading' | 'completed' | 'failed';
-	recordingKey: string;
 	manifestKey: string;
 };
 
@@ -46,7 +45,7 @@ export class SessionApi {
 		guildId: string,
 		channelId: string,
 		sessionId: string,
-		metadata: { endedAt: string; durationMs: number; recordingSizeBytes: number; manifestSizeBytes: number },
+		metadata: { endedAt: string; durationMs: number; manifestSizeBytes: number },
 	): Promise<void> {
 		await this.request(this.sessionPath(guildId, channelId, sessionId, 'completed'), {
 			method: 'POST',

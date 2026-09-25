@@ -113,7 +113,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [endedAt, durationMs, recordingSizeBytes, manifestSizeBytes]
+              required: [endedAt, durationMs, manifestSizeBytes]
               properties:
                 endedAt:
                   type: string
@@ -121,9 +121,6 @@ paths:
                 durationMs:
                   type: integer
                   minimum: 0
-                recordingSizeBytes:
-                  type: integer
-                  minimum: 1
                 manifestSizeBytes:
                   type: integer
                   minimum: 1
@@ -205,10 +202,8 @@ components:
         - createdAt
         - startedAt
         - endedAt
-        - recordingKey
         - manifestKey
         - durationMs
-        - recordingSizeBytes
         - manifestSizeBytes
         - errorCode
       properties:
@@ -221,10 +216,8 @@ components:
         createdAt: { type: string, format: date-time }
         startedAt: { type: [string, 'null'], format: date-time }
         endedAt: { type: [string, 'null'], format: date-time }
-        recordingKey: { type: string }
         manifestKey: { type: string }
         durationMs: { type: [integer, 'null'], minimum: 0 }
-        recordingSizeBytes: { type: [integer, 'null'], minimum: 1 }
         manifestSizeBytes: { type: [integer, 'null'], minimum: 1 }
         errorCode: { type: [string, 'null'] }
     UploadTarget:
@@ -233,7 +226,7 @@ components:
       properties:
         key: { type: string }
         url: { type: string, format: uri }
-        contentType: { type: string, enum: [audio/wav, application/json] }
+        contentType: { type: string, enum: [application/json] }
     SessionResponse:
       type: object
       required: [session]

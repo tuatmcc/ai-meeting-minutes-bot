@@ -1,4 +1,3 @@
-import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
@@ -70,26 +69,19 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 			try {
 				const result = await recorder.stop();
 				const uploads = await sessionApi.createUploadTargets(guild.id, channel.id, sessionId);
-				const recordingUpload = uploads.find(({ key }) => key.endsWith('/recording.wav'));
 				const manifestUpload = uploads.find(({ key }) => key.endsWith('/manifest.json'));
-				if (!recordingUpload || !manifestUpload) {
-					throw new Error('Worker did not return both R2 upload targets');
+				if (!manifestUpload) {
+					throw new Error('Worker did not return an R2 manifest upload target');
 				}
 
-				const [recordingSizeBytes, manifestSizeBytes] = await Promise.all([
-					uploadToR2(recordingUpload, result.filePath),
-					uploadToR2(manifestUpload, join(dirname(result.filePath), 'manifest.json')),
-				]);
+				const manifestSizeBytes = await uploadToR2(manifestUpload, join(dirname(result.filePath), 'manifest.json'));
 				await sessionApi.completeSession(guild.id, channel.id, sessionId, {
 					endedAt: result.endedAt,
 					durationMs: result.durationMs,
-					recordingSizeBytes,
 					manifestSizeBytes,
 				});
-				console.log(`[recording] uploaded to R2: ${sessionId}`);
-				await rm(dirname(result.filePath), { recursive: true, force: true }).catch((error: unknown) => {
-					console.warn('[recording] could not remove local temporary files', error);
-				});
+				console.log(`[recording] manifest uploaded to R2: ${sessionId}`);
+				console.log(`[recording] WAV kept locally: ${result.filePath}`);
 			} catch (error) {
 				console.error(`[recording] finalization failed: ${sessionId}`, error);
 				await sessionApi.failSession(guild.id, channel.id, sessionId, 'recording_finalize_failed').catch((failure: unknown) => {

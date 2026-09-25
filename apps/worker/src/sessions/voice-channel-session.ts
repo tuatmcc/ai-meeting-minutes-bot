@@ -11,10 +11,8 @@ type SessionRow = {
 	created_at: string;
 	started_at: string | null;
 	ended_at: string | null;
-	recording_key: string;
 	manifest_key: string;
 	duration_ms: number | null;
-	recording_size_bytes: number | null;
 	manifest_size_bytes: number | null;
 	error_code: string | null;
 };
@@ -32,10 +30,8 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 				created_at TEXT NOT NULL,
 				started_at TEXT,
 				ended_at TEXT,
-				recording_key TEXT NOT NULL,
 				manifest_key TEXT NOT NULL,
 				duration_ms INTEGER,
-				recording_size_bytes INTEGER,
 				manifest_size_bytes INTEGER,
 				error_code TEXT
 			)
@@ -71,14 +67,13 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		this.ctx.storage.sql.exec(
 			`INSERT INTO sessions (
 				session_id, guild_id, channel_id, request_id, state, created_at,
-				recording_key, manifest_key
-			) VALUES (?, ?, ?, ?, 'starting', ?, ?, ?)`,
+				manifest_key
+			) VALUES (?, ?, ?, ?, 'starting', ?, ?)`,
 			sessionId,
 			guildId,
 			channelId,
 			requestId,
 			createdAt,
-			`${prefix}/recording.wav`,
 			`${prefix}/manifest.json`,
 		);
 
@@ -122,7 +117,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 
 	async completeSession(
 		sessionId: string,
-		metadata: { endedAt: string; durationMs: number; recordingSizeBytes: number; manifestSizeBytes: number },
+		metadata: { endedAt: string; durationMs: number; manifestSizeBytes: number },
 	): Promise<SessionOperation> {
 		const session = this.findBySessionId(sessionId);
 		if (!session) {
@@ -138,11 +133,10 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		this.ctx.storage.sql.exec(
 			`UPDATE sessions
 			 SET state = 'completed', ended_at = ?, duration_ms = ?,
-			     recording_size_bytes = ?, manifest_size_bytes = ?
+			     manifest_size_bytes = ?
 			 WHERE session_id = ?`,
 			metadata.endedAt,
 			metadata.durationMs,
-			metadata.recordingSizeBytes,
 			metadata.manifestSizeBytes,
 			sessionId,
 		);
@@ -197,10 +191,8 @@ function toSession(row: SessionRow): VoiceSession {
 		createdAt: row.created_at,
 		startedAt: row.started_at,
 		endedAt: row.ended_at,
-		recordingKey: row.recording_key,
 		manifestKey: row.manifest_key,
 		durationMs: row.duration_ms,
-		recordingSizeBytes: row.recording_size_bytes,
 		manifestSizeBytes: row.manifest_size_bytes,
 		errorCode: row.error_code,
 	};
