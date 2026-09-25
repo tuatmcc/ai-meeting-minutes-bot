@@ -11,10 +11,18 @@
 				"name": "VOICE_CHANNEL_SESSION",
 				"class_name": "VoiceChannelSession",
 			},
+			{
+				"name": "GATEWAY_CONTROL",
+				"class_name": "GatewayControl",
+			},
 		],
 	},
 	"exports": {
 		"VoiceChannelSession": {
+			"type": "durable-object",
+			"storage": "sqlite",
+		},
+		"GatewayControl": {
 			"type": "durable-object",
 			"storage": "sqlite",
 		},

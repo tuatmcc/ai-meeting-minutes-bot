@@ -30,6 +30,13 @@ export class SessionApi {
 		return result.session;
 	}
 
+	async getActiveSession(guildId: string, channelId: string): Promise<Session | null> {
+		const result = await this.request<{ session: Session | null }>(`${this.channelPath(guildId, channelId)}/active`, {
+			method: 'GET',
+		});
+		return result.session;
+	}
+
 	async markRecordingStarted(guildId: string, channelId: string, sessionId: string): Promise<void> {
 		await this.request(this.sessionPath(guildId, channelId, sessionId, 'recording-started'), { method: 'POST' });
 	}

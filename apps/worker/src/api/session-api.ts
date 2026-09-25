@@ -5,6 +5,7 @@ import type { SessionOperation } from '../sessions/types.js';
 const API_PREFIX = '/api/v1';
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IDEMPOTENCY_KEY_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\d{17,20})$/i;
 
 export async function handleSessionApi(request: Request, env: WorkerEnv): Promise<Response> {
 	try {
@@ -48,7 +49,7 @@ async function routeSessionApi(request: Request, env: WorkerEnv): Promise<Respon
 
 	if (request.method === 'POST' && segments.length === 7) {
 		const requestId = request.headers.get('Idempotency-Key') ?? '';
-		if (!UUID_PATTERN.test(requestId)) {
+		if (!IDEMPOTENCY_KEY_PATTERN.test(requestId)) {
 			return json({ error: { code: 'INVALID_IDEMPOTENCY_KEY' } }, 400);
 		}
 		return operationResponse(await session.startSession(guildId, channelId, requestId), 201);
