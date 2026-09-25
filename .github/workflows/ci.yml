@@ -16,7 +16,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm and Node.js
-        uses: pnpm/setup@c9883cc79df532ad1a7b81bf9ab944ceb090d65c # v2.0.0
+        uses: pnpm/setup@e0ed22ae4d909f13ed5d2688513f73e1875e46db # v3.0.0
         with:
           version: 11.27.0
           runtime: node@24
@@ -26,7 +26,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: services/asr/uv.lock

@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { request as httpsRequest } from 'node:https';
-import type { UploadTarget } from './session-api.js';
+import type { UploadTarget } from './session-api.ts';
 
 export async function uploadToR2(target: UploadTarget, filePath: string): Promise<number> {
 	const { size } = await stat(filePath);
