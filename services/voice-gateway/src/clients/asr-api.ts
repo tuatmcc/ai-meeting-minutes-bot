@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { AsrStream } from './asr-stream.js';
 
 export type AsrTranscription = {
 	model: string;
@@ -12,6 +13,10 @@ export class AsrApi {
 
 	constructor(asrApiUrl: string) {
 		this.baseUrl = new URL(asrApiUrl.endsWith('/') ? asrApiUrl : `${asrApiUrl}/`);
+	}
+
+	openStream(onPartial?: (result: AsrTranscription) => void): Promise<AsrStream> {
+		return AsrStream.connect(this.baseUrl.toString(), onPartial);
 	}
 
 	async transcribe(filePath: string): Promise<AsrTranscription> {

@@ -2,6 +2,7 @@ import { EndBehaviorType, type AudioReceiveStream, type VoiceReceiver } from '@d
 import Prism from 'prism-media';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { StreamAudioEncoder } from '../audio/stream-audio-encoder.js';
 import { StereoPcmMixer, stereoAudioFormat, type StereoMixerStats } from '../audio/stereo-mixer.js';
 
 const FRAME_BYTES = stereoAudioFormat.frameSamples * stereoAudioFormat.channels * 2;
@@ -37,10 +38,18 @@ export class VoiceRecorder {
 		private readonly outputDir: string,
 	) {}
 
-	static async create(receiver: VoiceReceiver, outputDir: string, sessionId: string): Promise<VoiceRecorder> {
+	static async create(
+		receiver: VoiceReceiver,
+		outputDir: string,
+		sessionId: string,
+		onAsrAudio?: (pcm: Buffer) => void,
+	): Promise<VoiceRecorder> {
 		const sessionDir = join(outputDir, sessionId);
 		await mkdir(sessionDir, { recursive: true });
-		const mixer = await StereoPcmMixer.create(join(sessionDir, 'mixed-48khz-stereo.wav'));
+		const encoder = new StreamAudioEncoder();
+		const mixer = await StereoPcmMixer.create(join(sessionDir, 'mixed-48khz-stereo.wav'), (frame) => {
+			onAsrAudio?.(encoder.encode48kStereoPcm16le(frame));
+		});
 		return new VoiceRecorder(receiver, mixer, sessionId, sessionDir);
 	}
 

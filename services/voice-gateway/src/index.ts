@@ -7,6 +7,7 @@ import { loadConfig } from './config.js';
 import { AsrApi } from './clients/asr-api.js';
 import { uploadToR2 } from './clients/r2-upload.js';
 import { SessionApi } from './clients/session-api.js';
+import type { AsrStream } from './clients/asr-stream.js';
 import { VoiceRecorder } from './discord/voice-recorder.js';
 
 const config = loadConfig();
@@ -52,13 +53,17 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 
 	let sessionId: string | undefined;
 	let recorder: VoiceRecorder | undefined;
+	let asrStream: AsrStream | undefined;
 	try {
 		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 		console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
 
 		const session = await sessionApi.startSession(guild.id, channel.id, randomUUID());
 		sessionId = session.sessionId;
-		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, sessionId);
+		asrStream = await asrApi.openStream((partial) => {
+			console.log(`[transcription] partial updated: ${sessionId} (${partial.text.length} characters)`);
+		});
+		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, sessionId, (pcm) => asrStream?.sendAudio(pcm));
 		recorder.start();
 		await sessionApi.markRecordingStarted(guild.id, channel.id, sessionId);
 		console.log(`[recording] started: ${sessionId}`);
@@ -72,7 +77,7 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 			try {
 				const result = await recorder.stop();
 				await sessionApi.markProcessingStarted(guild.id, channel.id, sessionId);
-				const transcription = await asrApi.transcribe(result.filePath);
+				const transcription = await asrStream!.finish();
 				const manifestPath = join(dirname(result.filePath), 'manifest.json');
 				const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
 				await writeFile(manifestPath, `${JSON.stringify({ ...manifest, transcription }, null, 2)}\n`, 'utf8');
@@ -100,6 +105,7 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 				});
 				process.exitCode = 1;
 			} finally {
+				asrStream?.abort();
 				connection.destroy();
 				await client.destroy();
 			}
@@ -109,6 +115,7 @@ async function startRecording(readyClient: Client<true>): Promise<void> {
 			void stopRecording?.();
 		}, config.recordSeconds * 1000).unref();
 	} catch (error) {
+		asrStream?.abort();
 		if (recorder) {
 			await recorder.stop().catch((stopError: unknown) => {
 				console.error('[recording] cleanup after startup failure failed', stopError);

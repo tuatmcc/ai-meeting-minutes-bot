@@ -1,18 +1,17 @@
 # Voice Gateway
 
-Discord Voiceから音声を受信し、録音ファイルとして保存するサービスです。
-Qwen3-ASRによる文字起こしは `services/asr` が担当します。
+Discord Voiceから音声を受信し、録音しながらQwen3-ASRへリアルタイムに送るサービスです。
 
 ## 現在の動作
 
 - DAVE対応のDiscord Voice接続
 - 受信Opus音声のPCMデコード
 - 複数ユーザーの48kHz stereo PCMミックス
-- 指定秒数（デフォルト30秒）のWAV保存
+- 録音中のASR WebSocketストリーミング
+- 指定秒数（デフォルト30秒）の一時WAV保存
 - `manifest.json`への録音メタデータ保存
 
-現在は検証用に、起動すると指定されたVoice Channelへ接続して録音し、
-録音終了後にプロセスを終了します。セッション状態はCloudflare WorkerのVC単位Durable Objectで管理します。録音WAVを `ASR_API_URL` の `/transcribe` に送り、文字起こしを含むmanifestのみR2へアップロードします。成功後はローカル録音を削除し、ASRやアップロードに失敗した場合は調査用に残します。録音のセグメント化とpause/resumeは次の段階で追加します。
+現在は検証用に、起動すると指定されたVoice Channelへ接続し、録音中の音声を `ASR_API_URL` の `/stream` WebSocketへ送ります。48kHz stereo PCM16を16kHz mono float32へ変換し、2秒ごとに送信します。ASRのpartial結果はgatewayのコールバックで受け取り、final結果と録音メタデータをmanifestへ保存します。Cloudflare WorkerのVC単位Durable Objectはセッション状態を管理します。R2にはmanifestのみアップロードし、一時WAVは成功後に削除します。ASRやアップロードに失敗した場合は調査用に残します。録音のpause/resumeは次の段階で追加します。
 
 ## 起動
 
