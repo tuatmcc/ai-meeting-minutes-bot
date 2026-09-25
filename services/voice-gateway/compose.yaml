@@ -1,0 +1,16 @@
+services:
+  voice-gateway:
+    build:
+      context: ../..
+      dockerfile: services/voice-gateway/Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - production.env
+    networks:
+      - asr
+
+networks:
+  asr:
+    external: true
+    name: server_default

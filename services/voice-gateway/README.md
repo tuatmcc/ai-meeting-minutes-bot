@@ -35,3 +35,15 @@ manifestは次のようにsession IDごとに一時保存され、成功後に�
 services/voice-gateway/var/recordings/<session-id>/
 ├── manifest.json
 ```
+
+## 本番Docker
+
+`production.env.example`を`production.env`にコピーし、Discord Bot token、デプロイ済みWorkerのURL、Workerと共有する2つのtokenを設定します。R2の認証情報はWorker側だけに設定し、Gatewayには渡しません。
+
+このCompose定義は、ASRコンテナが接続している外部Dockerネットワーク`server_default`に参加します。ASRはそのネットワーク上の`server:8000`で参照します。Gatewayの待受ポート公開は不要です。
+
+```sh
+cp production.env.example production.env
+docker compose -f compose.yaml up -d --build
+docker compose -f compose.yaml logs -f voice-gateway
+```
