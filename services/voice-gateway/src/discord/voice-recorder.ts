@@ -131,7 +131,15 @@ export class VoiceRecorder {
 			stats,
 		};
 
-		await writeFile(join(this.outputDir, 'manifest.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+		const manifest = {
+			sessionId: result.sessionId,
+			startedAt: result.startedAt,
+			endedAt: result.endedAt,
+			durationMs: result.durationMs,
+			format: result.format,
+			stats: result.stats,
+		};
+		await writeFile(join(this.outputDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 		return result;
 	}
 

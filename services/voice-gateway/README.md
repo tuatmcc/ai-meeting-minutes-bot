@@ -12,7 +12,7 @@ Qwen3-ASRによる文字起こしは `services/asr` が担当します。
 - `manifest.json`への録音メタデータ保存
 
 現在は検証用に、起動すると指定されたVoice Channelへ接続して録音し、
-録音終了後にプロセスを終了します。録音のセグメント化とpause/resumeは次の段階で追加します。
+録音終了後にプロセスを終了します。セッション状態はCloudflare WorkerのVC単位Durable Objectで管理し、録音とmanifestはR2へアップロードします。録音のセグメント化とpause/resumeは次の段階で追加します。
 
 ## 起動
 
@@ -20,9 +20,13 @@ Qwen3-ASRによる文字起こしは `services/asr` が担当します。
 export DISCORD_BOT_TOKEN='...'
 export DISCORD_GUILD_ID='...'
 export DISCORD_VOICE_CHANNEL_ID='...'
+export WORKER_API_URL='http://localhost:8787'
+export WORKER_API_TOKEN='same-value-as-GATEWAY_API_TOKEN'
 
 pnpm --filter @ai-meeting-minutes/voice-gateway dev
 ```
+
+`WORKER_API_URL` はWorkerのURL、`WORKER_API_TOKEN` はWorker側の `GATEWAY_API_TOKEN` と同じ値です。R2へのPUT URLはWorkerが発行するため、gatewayにR2 API認証情報を設定する必要はありません。
 
 任意の環境変数:
 
@@ -39,5 +43,7 @@ services/voice-gateway/var/recordings/2026-09-25T12-00-00-000Z/
 ├── manifest.json
 └── mixed-48khz-stereo.wav
 ```
+
+アップロードに成功したセッションの一時ファイルは削除されます。開始またはアップロードに失敗した場合は、確認・再処理できるようローカルに残ります。
 
 Voice受信には、Botが対象Guildに所属し、対象Voice Channelへの接続権限を持っている必要があります。

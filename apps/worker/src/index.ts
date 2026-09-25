@@ -1,18 +1,10 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import type { WorkerEnv } from './env.js';
+import { handleSessionApi } from './api/session-api.js';
+
+export { VoiceChannelSession } from './sessions/voice-channel-session.js';
 
 export default {
-	async fetch(_request, _env, _ctx): Promise<Response> {
-		return new Response('Hello World!');
+	async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+		return handleSessionApi(request, env);
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<WorkerEnv>;
