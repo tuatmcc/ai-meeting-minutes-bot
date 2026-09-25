@@ -5,21 +5,20 @@ const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 
-type CommandOption = {
-	name: string;
-	type: number;
-	value?: unknown;
-};
-
 type DiscordInteraction = {
 	id: string;
 	application_id: string;
 	type: number;
 	token?: string;
 	guild_id?: string;
+	channel_id?: string;
+	channel?: {
+		id?: string;
+		type?: number;
+		guild_id?: string;
+	};
 	data?: {
 		name?: string;
-		options?: CommandOption[];
 	};
 };
 
@@ -72,7 +71,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 
 	const command = parseCommand(value);
 	if (!command) {
-		return interactionMessage('サーバー内で `/start` または `/stop` と VC を指定してください。');
+		return interactionMessage('対象のボイスチャンネルのチャットで `/start` または `/stop` を実行してください。');
 	}
 
 	ctx.waitUntil(processCommand(command, value, env));
@@ -175,19 +174,23 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 
 function parseCommand(interaction: DiscordInteraction): { action: 'start' | 'stop'; guildId: string; channelId: string } | null {
 	const guildId = interaction.guild_id;
+	const channelId = interaction.channel_id;
+	const sourceChannel = interaction.channel;
 	const name = interaction.data?.name;
-	const channel = interaction.data?.options?.find((option) => option.name === 'channel');
 	if (
 		!guildId ||
 		!SNOWFLAKE_PATTERN.test(guildId) ||
-		(name !== 'start' && name !== 'stop') ||
-		channel?.type !== 7 ||
-		typeof channel.value !== 'string' ||
-		!SNOWFLAKE_PATTERN.test(channel.value)
+		!channelId ||
+		!SNOWFLAKE_PATTERN.test(channelId) ||
+		(sourceChannel !== undefined &&
+			(sourceChannel.id !== channelId ||
+				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
+				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
+		(name !== 'start' && name !== 'stop')
 	) {
 		return null;
 	}
-	return { action: name, guildId, channelId: channel.value };
+	return { action: name, guildId, channelId };
 }
 
 function isDiscordInteraction(value: unknown): value is DiscordInteraction {
@@ -201,7 +204,21 @@ function isDiscordInteraction(value: unknown): value is DiscordInteraction {
 		typeof interaction.type === 'number' &&
 		(interaction.token === undefined || typeof interaction.token === 'string') &&
 		(interaction.guild_id === undefined || typeof interaction.guild_id === 'string') &&
+		(interaction.channel_id === undefined || typeof interaction.channel_id === 'string') &&
+		(interaction.channel === undefined || isPartialChannel(interaction.channel)) &&
 		(interaction.data === undefined || isApplicationCommandData(interaction.data))
+	);
+}
+
+function isPartialChannel(value: unknown): boolean {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+	const channel = value as Record<string, unknown>;
+	return (
+		(channel.id === undefined || typeof channel.id === 'string') &&
+		(channel.type === undefined || typeof channel.type === 'number') &&
+		(channel.guild_id === undefined || typeof channel.guild_id === 'string')
 	);
 }
 
@@ -210,22 +227,7 @@ function isApplicationCommandData(value: unknown): boolean {
 		return false;
 	}
 	const data = value as Record<string, unknown>;
-	if (data.name !== undefined && typeof data.name !== 'string') {
-		return false;
-	}
-	if (data.options === undefined) {
-		return true;
-	}
-	return (
-		Array.isArray(data.options) &&
-		data.options.every(
-			(option: unknown) =>
-				typeof option === 'object' &&
-				option !== null &&
-				typeof (option as Record<string, unknown>).name === 'string' &&
-				typeof (option as Record<string, unknown>).type === 'number',
-		)
-	);
+	return data.name === undefined || typeof data.name === 'string';
 }
 
 async function readBoundedBody(request: Request): Promise<BodyReadResult> {

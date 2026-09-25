@@ -6,7 +6,7 @@ Discord Voiceから音声を受信し、録音中の音声をQwen3-ASRへリア�
 
 - Discord Voiceへ接続し、受信Opus音声をPCMにデコードして複数ユーザーの48kHz stereo音声をミックス
 - 録音中に音声をASR `/stream` WebSocketへストリーミング
-- `/start` で指定VCのセッションを開始し、`/stop` で録音を終了
+- VCのチャットで実行した`/start`・`/stop`から、そのVCのセッションを開始・終了
 - VC単位Durable Objectの状態を更新し、ASR結果を含むmanifestだけをR2へアップロード
 - manifestだけを一時保存し、正常終了後に削除
 

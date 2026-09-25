@@ -14,17 +14,8 @@ if (missingVariables.length > 0) {
 	const { DISCORD_APPLICATION_ID, DISCORD_TEST_GUILD_ID, DISCORD_BOT_TOKEN } = process.env;
 	const commands = ['start', 'stop'].map((name) => ({
 		name,
-		description: name === 'start' ? 'VC の録音を開始します' : 'VC の録音を停止します',
+		description: name === 'start' ? 'このボイスチャンネルで録音を開始します' : 'このボイスチャンネルの録音を停止します',
 		type: 1,
-		options: [
-			{
-				name: 'channel',
-				description: '対象のボイスチャンネル',
-				type: 7,
-				required: true,
-				channel_types: [2],
-			},
-		],
 	}));
 
 	const response = await fetch(

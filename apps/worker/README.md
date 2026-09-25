@@ -14,7 +14,7 @@ Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホス
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは `/start channel:<VC>` と `/stop channel:<VC>` です。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で `/start` または `/stop` と入力します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 ## ローカル開発
 
