@@ -3,6 +3,7 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-09-25",
 	"vars": {
+		"DISCORD_APPLICATION_ID": "1552896143392907294",
 		"R2_BUCKET_NAME": "ai-meeting-minutes-recordings",
 	},
 	"durable_objects": {

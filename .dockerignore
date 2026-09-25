@@ -1,0 +1,9 @@
+.git
+**/.git
+**/node_modules
+**/.env
+**/.env.*
+**/.dev.vars
+**/.dev.vars.*
+**/production.env
+**/var
