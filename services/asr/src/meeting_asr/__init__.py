@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from meeting-asr!")
+"""Qwen3-ASR service for the voice gateway."""

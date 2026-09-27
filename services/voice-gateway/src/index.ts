@@ -4,24 +4,24 @@ import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
 import { loadConfig } from './config.ts';
 import { AsrApi } from './clients/asr-api.ts';
+import { AsrSegmenter } from './clients/asr-segmenter.ts';
 import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
 import { uploadToR2 } from './clients/r2-upload.ts';
 import { SessionApi } from './clients/session-api.ts';
-import type { AsrStream } from './clients/asr-stream.ts';
 import { VoiceRecorder } from './discord/voice-recorder.ts';
 
 type ActiveRecording = {
 	command: GatewayCommand;
 	connection: VoiceConnection;
 	recorder: VoiceRecorder;
-	asrStream: AsrStream;
+	asrSegmenter: AsrSegmenter;
 	stopPromise?: Promise<void>;
 	failureToRecord?: string;
 };
 
 const config = loadConfig();
 const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
-const asrApi = new AsrApi(config.asrApiUrl);
+const asrApi = new AsrApi(config.asrApiUrl, config.asrApiToken);
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
@@ -58,7 +58,7 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 
 	let connection: VoiceConnection | undefined;
 	let recorder: VoiceRecorder | undefined;
-	let asrStream: AsrStream | undefined;
+	let asrSegmenter: AsrSegmenter | undefined;
 	try {
 		const guild = await client.guilds.fetch(command.guildId);
 		const channel = await guild.channels.fetch(command.channelId);
@@ -93,17 +93,16 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 		console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
 
-		asrStream = await asrApi.openStream((partial) => {
-			console.log(`[transcription] partial updated: ${command.sessionId} (${partial.text.length} characters)`);
-		});
-		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, command.sessionId, (pcm) => asrStream?.sendAudio(pcm));
+		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, command.sessionId, (pcm) =>
+			asrSegmenter?.addAudio(pcm),
+		);
+		asrSegmenter = new AsrSegmenter(asrApi, join(config.recordingsDir, command.sessionId));
 		recorder.start();
 		await sessionApi.markRecordingStarted(command.guildId, command.channelId, command.sessionId);
 
-		activeRecordings.set(command.sessionId, { command, connection, recorder, asrStream });
+		activeRecordings.set(command.sessionId, { command, connection, recorder, asrSegmenter });
 		console.log(`[recording] started: ${command.sessionId}`);
 	} catch (error) {
-		asrStream?.abort();
 		if (recorder) {
 			await recorder.stop().catch((stopError: unknown) => {
 				console.error('[recording] cleanup after startup failure failed', stopError);
@@ -131,12 +130,12 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 	}
 
 	const stopPromise = (async () => {
-		const { command, recorder, asrStream, connection } = recording;
+		const { command, recorder, asrSegmenter, connection } = recording;
 		let failSessionRecorded = false;
 		try {
 			const result = await recorder.stop();
 			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
-			const transcription = await asrStream.finish();
+			const transcription = await asrSegmenter.finish();
 			const manifestPath = join(result.sessionDir, 'manifest.json');
 			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
 			await writeFile(manifestPath, `${JSON.stringify({ ...manifest, transcription }, null, 2)}\n`, 'utf8');
@@ -167,7 +166,6 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 				throw failure;
 			}
 		} finally {
-			asrStream.abort();
 			connection.destroy();
 			if (failSessionRecorded || !recording.failureToRecord) {
 				activeRecordings.delete(command.sessionId);
