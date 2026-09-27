@@ -12,7 +12,7 @@ docker compose up -d --build
 docker compose logs -f asr
 ```
 
-`/health` が応答するまでモデルのダウンロードとロードに時間がかかる場合があります。`ASR_MODEL` と `ASR_GPU_MEMORY_UTILIZATION` は環境変数で変更できます。既定値はRTX 3060向けの0.6BモデルとGPUメモリ使用率50%です。
+`/health` が応答するまでモデルのダウンロードとロードに時間がかかる場合があります。`ASR_MODEL` と `ASR_GPU_MEMORY_UTILIZATION` は環境変数で変更できます。既定値はRTX 3060向けの0.6Bモデル、GPUメモリ使用率80%、文脈長32,768トークンです。
 
 WindowsではDocker DesktopのWSL2 backendと、GPU対応NVIDIAドライバーが必要です。Docker DesktopがGPUを見つけるか確認するには、ホストで `docker run --rm --gpus=all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark` を実行します。
 
