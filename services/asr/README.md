@@ -1,6 +1,6 @@
 # ASR Service
 
-Qwen3-ASR-0.6Bを使い、voice-gatewayから受け取った音声を文字起こしするGPU側サービスです。ストリーミング推論はQwen公式のvLLMバックエンドを使います。
+Qwen3-ASR-0.6Bを使い、voice-gatewayから受け取った音声を文字起こしするGPU側サービスです。voice-gatewayは会議全体を一度に送らず、30秒単位の音声を`/transcribe`へ送ります。
 
 ## Docker起動
 
@@ -21,7 +21,7 @@ Gatewayからこのサービスへは、ASRホストのLANまたはVPNで到達�
 ## API
 
 - `GET /health`: 起動確認。モデルロード完了後に `{"ready":true}` を返します。
-- `POST /transcribe`: Bearer tokenで認証する音声ファイル文字起こしAPIです。
-- `WS /stream`: 接続後、最初に `{"type":"start","token":"...","language":"Japanese","sample_rate":16000}` を送信します。16kHz mono float32 little-endianのバイナリ音声を受け取り、`ready`、`partial`、`final` JSONメッセージを返します。
+- `POST /transcribe`: Bearer tokenで認証する音声ファイル文字起こしAPIです。voice-gatewayからは30秒ごとのWAVを受け取ります。
+- `WS /stream`: 接続後、最初に `{"type":"start","token":"...","language":"Japanese","sample_rate":16000}` を送信します。16kHz mono float32 little-endianのバイナリ音声を受け取り、`ready`、`partial`、`final` JSONメッセージを返します。長時間会議には使わず、voice-gatewayと同じく短い独立区間で`/transcribe`を呼び出してください。
 
-ASRサービスはDiscord Voiceへ接続せず、音声ファイルも保存しません。接続と録音は `services/voice-gateway` が担当します。
+ASRサービスはDiscord Voiceへ接続せず、受信した音声ファイルも保存しません。接続と音声の区間化は `services/voice-gateway` が担当します。`/stream`は利用できますが、voice-gatewayの長時間会議経路では使いません。

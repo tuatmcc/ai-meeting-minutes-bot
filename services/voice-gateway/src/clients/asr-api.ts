@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { AsrStream } from './asr-stream.ts';
 
 export type AsrTranscription = {
 	model: string;
@@ -18,19 +17,20 @@ export class AsrApi {
 		this.baseUrl = new URL(asrApiUrl.endsWith('/') ? asrApiUrl : `${asrApiUrl}/`);
 	}
 
-	openStream(onPartial?: (result: AsrTranscription) => void): Promise<AsrStream> {
-		return AsrStream.connect(this.baseUrl.toString(), this.apiToken, onPartial);
-	}
-
 	async transcribe(filePath: string): Promise<AsrTranscription> {
 		const audio = await readFile(filePath);
+		return this.transcribeWav(audio, basename(filePath));
+	}
+
+	async transcribeWav(audio: Buffer, filename: string): Promise<AsrTranscription> {
 		const form = new FormData();
-		form.append('file', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), basename(filePath));
+		form.append('file', new Blob([new Uint8Array(audio)], { type: 'audio/wav' }), filename);
 		form.append('language', 'Japanese');
 
 		const response = await fetch(new URL('transcribe', this.baseUrl), {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${this.apiToken}` },
+			signal: AbortSignal.timeout(120_000),
 			body: form,
 		});
 		const body: unknown = await response.json().catch(() => undefined);
