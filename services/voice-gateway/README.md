@@ -14,7 +14,7 @@ ASRには48kHz stereo PCM16を16kHz mono float32へ変換して2秒ごとに送�
 
 ## 起動
 
-`.env.example`を参考に環境変数を設定し、リポジトリルートから起動します。
+`.env.example`を参考に環境変数を設定し、ASRサービスと同じ`ASR_API_TOKEN`を設定してからリポジトリルートから起動します。
 
 ```sh
 pnpm --filter @ai-meeting-minutes/voice-gateway dev
@@ -25,6 +25,7 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 - `WORKER_API_TOKEN`: Workerの`GATEWAY_API_TOKEN`と同じ値。セッションAPIの認証に使います。
 - `WORKER_CONTROL_TOKEN`: Workerの`GATEWAY_CONTROL_TOKEN`と同じ値。制御WebSocketの認証に使います。
 - `ASR_API_URL`: ASRサーバーのベースURL
+- `ASR_API_TOKEN`: ASRサービスと共有する十分長いランダムな認証トークン
 - `RECORDINGS_DIR`: manifestの一時保存先。デフォルトは`services/voice-gateway/var/recordings`
 
 音声はローカルファイルに保存しません。ミックスした48kHz PCMをそのままASRへ送り、終了後に文字起こしと録音メタデータを含むmanifestだけをR2へアップロードします。manifest用のR2 PUT URLはWorkerが発行するため、gatewayにR2 API認証情報を設定する必要はありません。gatewayはDiscord Botの`ViewChannel`と`Connect`権限を必要とします。Botは音声を送信しないため`Speak`権限は不要です。
@@ -40,7 +41,7 @@ services/voice-gateway/var/recordings/<session-id>/
 
 `production.env.example`を`production.env`にコピーし、Discord Bot token、デプロイ済みWorkerのURL、Workerと共有する2つのtokenを設定します。R2の認証情報はWorker側だけに設定し、Gatewayには渡しません。
 
-このCompose定義は、ASRコンテナが接続している外部Dockerネットワーク`server_default`に参加します。ASRはそのネットワーク上の`server:8000`で参照します。Gatewayの待受ポート公開は不要です。
+このCompose定義は外部Dockerネットワーク`server_default`に参加します。ASRサービスを別ホストで起動する場合は、`ASR_API_URL`にそのホストのプライベートネットワーク上のアドレスを設定します。ASR側の`ASR_API_TOKEN`と同じ値を使い、ASRホストの8000番ポートへはプライベートネットワークまたはVPNから接続できるようにします。
 
 ```sh
 cp production.env.example production.env

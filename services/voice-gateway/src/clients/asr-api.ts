@@ -11,12 +11,15 @@ export type AsrTranscription = {
 export class AsrApi {
 	private readonly baseUrl: URL;
 
-	constructor(asrApiUrl: string) {
+	constructor(
+		asrApiUrl: string,
+		private readonly apiToken: string,
+	) {
 		this.baseUrl = new URL(asrApiUrl.endsWith('/') ? asrApiUrl : `${asrApiUrl}/`);
 	}
 
 	openStream(onPartial?: (result: AsrTranscription) => void): Promise<AsrStream> {
-		return AsrStream.connect(this.baseUrl.toString(), onPartial);
+		return AsrStream.connect(this.baseUrl.toString(), this.apiToken, onPartial);
 	}
 
 	async transcribe(filePath: string): Promise<AsrTranscription> {
@@ -27,6 +30,7 @@ export class AsrApi {
 
 		const response = await fetch(new URL('transcribe', this.baseUrl), {
 			method: 'POST',
+			headers: { Authorization: `Bearer ${this.apiToken}` },
 			body: form,
 		});
 		const body: unknown = await response.json().catch(() => undefined);

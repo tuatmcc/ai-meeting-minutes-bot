@@ -9,6 +9,7 @@ export type VoiceGatewayConfig = {
 	workerControlToken: string;
 	workerControlUrl: string;
 	asrApiUrl: string;
+	asrApiToken: string;
 	recordingsDir: string;
 };
 
@@ -64,6 +65,7 @@ export function loadConfig(): VoiceGatewayConfig {
 		workerControlToken: requiredEnv('WORKER_CONTROL_TOKEN'),
 		workerControlUrl: workerControlUrl(workerApiUrl),
 		asrApiUrl: asrApiUrlEnv(),
+		asrApiToken: requiredEnv('ASR_API_TOKEN'),
 		recordingsDir: resolve(process.env.RECORDINGS_DIR ?? 'var/recordings'),
 	};
 }

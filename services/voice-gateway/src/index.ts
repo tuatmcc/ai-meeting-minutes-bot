@@ -21,7 +21,7 @@ type ActiveRecording = {
 
 const config = loadConfig();
 const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
-const asrApi = new AsrApi(config.asrApiUrl);
+const asrApi = new AsrApi(config.asrApiUrl, config.asrApiToken);
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });

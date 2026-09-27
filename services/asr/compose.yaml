@@ -1,0 +1,37 @@
+services:
+  asr:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      ASR_HOST: 0.0.0.0
+      HF_HOME: /root/.cache/huggingface
+    ports:
+      - '${ASR_BIND_ADDRESS:-0.0.0.0}:8000:8000'
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    shm_size: 4gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python3',
+          '-c',
+          "import json, urllib.request; json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5))",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 10m
+      retries: 3
+
+volumes:
+  huggingface-cache:

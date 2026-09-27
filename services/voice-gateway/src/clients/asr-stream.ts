@@ -31,6 +31,7 @@ export class AsrStream {
 
 	private constructor(
 		asrApiUrl: string,
+		private readonly apiToken: string,
 		private readonly onPartial?: (result: AsrTranscription) => void,
 	) {
 		const streamUrl = new URL('stream', asrApiUrl.endsWith('/') ? asrApiUrl : `${asrApiUrl}/`);
@@ -42,7 +43,7 @@ export class AsrStream {
 		});
 
 		this.socket.addEventListener('open', () => {
-			this.socket.send(JSON.stringify({ type: 'start', language: 'Japanese', sample_rate: SAMPLE_RATE }));
+			this.socket.send(JSON.stringify({ type: 'start', token: this.apiToken, language: 'Japanese', sample_rate: SAMPLE_RATE }));
 		});
 		this.socket.addEventListener('message', (event) => this.handleMessage(event.data));
 		this.socket.addEventListener('error', () => this.fail(new Error('ASR WebSocket connection failed')));
@@ -53,8 +54,8 @@ export class AsrStream {
 		});
 	}
 
-	static async connect(asrApiUrl: string, onPartial?: (result: AsrTranscription) => void): Promise<AsrStream> {
-		const stream = new AsrStream(asrApiUrl, onPartial);
+	static async connect(asrApiUrl: string, apiToken: string, onPartial?: (result: AsrTranscription) => void): Promise<AsrStream> {
+		const stream = new AsrStream(asrApiUrl, apiToken, onPartial);
 		let timeout: NodeJS.Timeout | undefined;
 		try {
 			await Promise.race([

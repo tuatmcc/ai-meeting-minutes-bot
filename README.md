@@ -6,6 +6,6 @@ Discord 上の会議音声を認識し、Workers AI を活用した議事録の�
 
 - `apps/worker`: VC単位のセッション管理APIを提供するCloudflare Workerです。セッション状態はDurable Objects、録音メタデータはR2に保存します。
 - `services/voice-gateway`: Discord Voice への接続と録音を担うNode.jsサービスです。WAVはR2に送らず、manifestのみアップロードします。
-- `services/asr`: 録音済み音声に対するQwen3-ASRの推論を担うGPU側サービスです。
+- `services/asr`: Qwen3-ASR-0.6B/vLLMによる音声認識を担うGPU側サービスです。Windows + Docker DesktopのWSL2 GPU環境向けComposeを含みます。
 
-Workerとvoice-gateway間のHTTP契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discordのスラッシュコマンドはまだ実装していません。
+Workerとvoice-gateway間のHTTP契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discordの `/start`・`/stop` コマンドから録音と文字起こしのセッションを操作できます。
