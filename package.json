@@ -3,7 +3,7 @@
 	"private": true,
 	"scripts": {
 		"dev:worker": "pnpm --filter @ai-meeting-minutes/worker dev",
-		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker deploy",
+		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker run deploy",
 		"fmt:ts": "oxfmt",
 		"fmt:python": "uv format --preview-features format-command --directory services/asr",
 		"fmt": "pnpm fmt:ts && pnpm fmt:python",
