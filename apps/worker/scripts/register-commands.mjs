@@ -12,11 +12,23 @@ if (missingVariables.length > 0) {
 	process.exitCode = 1;
 } else {
 	const { DISCORD_APPLICATION_ID, DISCORD_TEST_GUILD_ID, DISCORD_BOT_TOKEN } = process.env;
-	const commands = ['start', 'stop'].map((name) => ({
-		name,
-		description: name === 'start' ? 'このボイスチャンネルで録音を開始します' : 'このボイスチャンネルの録音を停止します',
-		type: 1,
-	}));
+	const commands = [
+		{
+			name: 'start',
+			description: 'このボイスチャンネルで録音を開始します',
+			type: 1,
+			options: [
+				{
+					name: 'notion_url',
+					description: 'AI議事録を作成する既存のNotion議事録ページURL',
+					type: 3,
+					required: false,
+					max_length: 2048,
+				},
+			],
+		},
+		{ name: 'stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
+	];
 
 	const response = await fetch(
 		`https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/guilds/${DISCORD_TEST_GUILD_ID}/commands`,

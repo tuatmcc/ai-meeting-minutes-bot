@@ -19,8 +19,22 @@ type DiscordInteraction = {
 	};
 	data?: {
 		name?: string;
+		options?: Array<{
+			name?: string;
+			type?: number;
+			value?: unknown;
+		}>;
 	};
 };
+
+type ParsedCommand = {
+	action: 'start' | 'stop';
+	guildId: string;
+	channelId: string;
+	notionParentPageId: string | null;
+};
+
+type CommandParseResult = { ok: true; command: ParsedCommand } | { ok: false; reason: 'unsupported' | 'invalid-notion-url' };
 
 type BodyReadResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'too-large' | 'read-failed' };
 
@@ -69,20 +83,20 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 		return interactionMessage('この操作には対応していません。');
 	}
 
-	const command = parseCommand(value);
-	if (!command) {
+	const parsed = parseCommand(value);
+	if (!parsed.ok) {
+		if (parsed.reason === 'invalid-notion-url') {
+			return interactionMessage('Notionの議事録ページURLを指定してください。');
+		}
 		return interactionMessage('対象のボイスチャンネルのチャットで `/start` または `/stop` を実行してください。');
 	}
 
+	const command = parsed.command;
 	ctx.waitUntil(processCommand(command, value, env));
 	return Response.json({ type: 5, data: { flags: 64 } });
 }
 
-async function processCommand(
-	command: { action: 'start' | 'stop'; guildId: string; channelId: string },
-	interaction: DiscordInteraction,
-	env: WorkerEnv,
-): Promise<void> {
+async function processCommand(command: ParsedCommand, interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	const token = interaction.token;
 	if (!token) {
 		return;
@@ -107,14 +121,13 @@ async function processCommand(
 	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
 }
 
-async function executeCommand(
-	command: { action: 'start' | 'stop'; guildId: string; channelId: string },
-	interactionId: string,
-	env: WorkerEnv,
-): Promise<string> {
+async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<string> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'start') {
-		const result = await session.startSession(command.guildId, command.channelId, interactionId);
+		if (command.notionParentPageId && !env.NOTION_API_TOKEN) {
+			return 'Notion連携がWorkerに設定されていません。';
+		}
+		const result = await session.startSession(command.guildId, command.channelId, interactionId, command.notionParentPageId);
 		if (!result.ok) {
 			return result.code === 'SESSION_ALREADY_ACTIVE'
 				? `この VC はすでに録音中です: <#${command.channelId}>`
@@ -132,9 +145,10 @@ async function executeCommand(
 			channelId: command.channelId,
 			sessionId: result.session.sessionId,
 		});
+		const notionMessage = command.notionParentPageId ? '（終了後、指定したNotionページの下にAI議事録を作成します）' : '';
 		return queued.gatewayConnected
-			? `録音の開始要求を送信しました: <#${command.channelId}>`
-			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`;
+			? `録音の開始要求を送信しました: <#${command.channelId}>${notionMessage}`
+			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
 	}
 
 	const active = await session.getActiveSession();
@@ -172,7 +186,7 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 	return '録音セッションを開始できませんでした。';
 }
 
-function parseCommand(interaction: DiscordInteraction): { action: 'start' | 'stop'; guildId: string; channelId: string } | null {
+function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 	const guildId = interaction.guild_id;
 	const channelId = interaction.channel_id;
 	const sourceChannel = interaction.channel;
@@ -188,9 +202,54 @@ function parseCommand(interaction: DiscordInteraction): { action: 'start' | 'sto
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
 		(name !== 'start' && name !== 'stop')
 	) {
+		return { ok: false, reason: 'unsupported' };
+	}
+
+	let notionParentPageId: string | null = null;
+	if (name === 'start') {
+		const urlOption = interaction.data?.options?.find((option) => option.name === 'notion_url');
+		if (urlOption) {
+			if (urlOption.type !== 3 || typeof urlOption.value !== 'string') {
+				return { ok: false, reason: 'invalid-notion-url' };
+			}
+			notionParentPageId = parseNotionPageId(urlOption.value);
+			if (!notionParentPageId) {
+				return { ok: false, reason: 'invalid-notion-url' };
+			}
+		}
+	}
+	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId } };
+}
+
+function parseNotionPageId(rawUrl: string): string | null {
+	try {
+		const url = new URL(rawUrl.trim());
+		const hostname = url.hostname.toLowerCase();
+		if (
+			url.protocol !== 'https:' ||
+			!(
+				hostname === 'notion.so' ||
+				hostname.endsWith('.notion.so') ||
+				hostname === 'notion.com' ||
+				hostname.endsWith('.notion.com') ||
+				hostname === 'notion.site' ||
+				hostname.endsWith('.notion.site')
+			)
+		) {
+			return null;
+		}
+
+		const lastSegment = url.pathname.split('/').filter(Boolean).at(-1);
+		const match = lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+		if (!match) {
+			return null;
+		}
+
+		const id = match[1].replaceAll('-', '').toLowerCase();
+		return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+	} catch {
 		return null;
 	}
-	return { action: name, guildId, channelId };
 }
 
 function isDiscordInteraction(value: unknown): value is DiscordInteraction {
@@ -227,7 +286,18 @@ function isApplicationCommandData(value: unknown): boolean {
 		return false;
 	}
 	const data = value as Record<string, unknown>;
-	return data.name === undefined || typeof data.name === 'string';
+	return (
+		(data.name === undefined || typeof data.name === 'string') &&
+		(data.options === undefined || (Array.isArray(data.options) && data.options.every(isApplicationCommandOption)))
+	);
+}
+
+function isApplicationCommandOption(value: unknown): value is { name: string; type: number; value: unknown } {
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+	const option = value as Record<string, unknown>;
+	return typeof option.name === 'string' && typeof option.type === 'number' && 'value' in option;
 }
 
 async function readBoundedBody(request: Request): Promise<BodyReadResult> {

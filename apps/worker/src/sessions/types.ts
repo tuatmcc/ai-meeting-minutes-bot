@@ -9,11 +9,12 @@ export type VoiceSession = {
 	startedAt: string | null;
 	endedAt: string | null;
 	manifestKey: string;
+	notionParentPageId: string | null;
 	durationMs: number | null;
 	manifestSizeBytes: number | null;
 	errorCode: string | null;
 };
 
 export type SessionOperation =
-	| { ok: true; session: VoiceSession }
+	| { ok: true; session: VoiceSession; completedNow?: boolean }
 	| { ok: false; code: 'SESSION_ALREADY_ACTIVE' | 'SESSION_NOT_FOUND' | 'INVALID_SESSION_STATE'; session?: VoiceSession };
