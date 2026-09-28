@@ -227,7 +227,14 @@ function parseNotionPageId(rawUrl: string): string | null {
 		const hostname = url.hostname.toLowerCase();
 		if (
 			url.protocol !== 'https:' ||
-			!(hostname === 'notion.so' || hostname.endsWith('.notion.so') || hostname === 'notion.site' || hostname.endsWith('.notion.site'))
+			!(
+				hostname === 'notion.so' ||
+				hostname.endsWith('.notion.so') ||
+				hostname === 'notion.com' ||
+				hostname.endsWith('.notion.com') ||
+				hostname === 'notion.site' ||
+				hostname.endsWith('.notion.site')
+			)
 		) {
 			return null;
 		}
