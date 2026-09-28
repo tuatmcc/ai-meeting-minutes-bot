@@ -124,7 +124,7 @@ paths:
       - $ref: '#/components/parameters/sessionId'
     post:
       operationId: completeSession
-      description: Marks the session complete and schedules a Notion page export when Notion is configured.
+      description: Marks the session complete and schedules a child page under the Notion page provided to /start, when configured.
       requestBody:
         required: true
         content:
@@ -221,6 +221,7 @@ components:
         - startedAt
         - endedAt
         - manifestKey
+        - notionParentPageId
         - durationMs
         - manifestSizeBytes
         - errorCode
@@ -235,6 +236,7 @@ components:
         startedAt: { type: [string, 'null'], format: date-time }
         endedAt: { type: [string, 'null'], format: date-time }
         manifestKey: { type: string }
+        notionParentPageId: { type: [string, 'null'], format: uuid }
         durationMs: { type: [integer, 'null'], minimum: 0 }
         manifestSizeBytes: { type: [integer, 'null'], minimum: 1 }
         errorCode: { type: [string, 'null'] }

@@ -83,9 +83,9 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 				durationMs: body.durationMs,
 				manifestSizeBytes: body.manifestSizeBytes,
 			});
-			if (result.ok && result.completedNow && (env.NOTION_API_TOKEN || env.NOTION_DATA_SOURCE_ID)) {
-				if (!env.NOTION_API_TOKEN || !env.NOTION_DATA_SOURCE_ID) {
-					console.error('[notion] export is configured incompletely');
+			if (result.ok && result.completedNow && result.session.notionParentPageId) {
+				if (!env.NOTION_API_TOKEN) {
+					console.error('[notion] export skipped because the API token is missing');
 				} else {
 					ctx.waitUntil(
 						publishMeetingToNotion(env, result.session)

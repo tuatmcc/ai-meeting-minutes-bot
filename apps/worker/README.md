@@ -14,18 +14,17 @@ Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホス
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で `/start` または `/stop` と入力します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で `/start` または `/stop` と入力します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、録音完了後にそのページの下へAI議事録ページを作成します。URLは任意です。
 
 ## Notionへの保存
 
-セッションが完了すると、WorkerはR2のmanifestを読み、文字起こしと会議情報をNotionのdata sourceに1ページとして保存します。Notion設定がない環境では保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。
+`/start` に既存のNotion議事録ページURLが指定されていると、セッション完了後にWorkerはR2のmanifestを読み、文字起こしと会議情報をそのページの子ページ「AI議事録」として保存します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。要約生成は次の段階で追加します。
 
 1. Notion Developer Portalでinternal connectionを作成し、`Insert content` と `Insert property` の権限を付けます。
-2. 保存先のdatabaseにconnectionを追加します。
-3. Notionのdatabase設定からdata source IDをコピーします。
-4. ローカルでは `.dev.vars` に `NOTION_API_TOKEN` と `NOTION_DATA_SOURCE_ID` を設定します。本番では同じ名前でWorker secretsを登録します。
+2. 対象の議事録ページにconnectionを追加します。データベース内のページの場合は、そのデータベースにconnectionを追加します。
+3. ローカルでは `.dev.vars` に `NOTION_API_TOKEN` を設定します。本番ではWorker secretとして登録します。
 
-ページタイトルは録音開始時刻（JST）とsession IDから作成されます。本文にはsession情報と全文字起こしが入ります。要約は次の段階で追加します。
+子ページの本文にはsession情報と全文字起こしが入ります。
 
 ## ローカル開発
 
@@ -36,6 +35,6 @@ Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限�
 
 voice-gateway側は [`../../services/voice-gateway/.env.example`](../../services/voice-gateway/.env.example) を `.env` にコピーして設定できます。
 
-`.dev.vars` はGit管理対象外です。実環境では `GATEWAY_API_TOKEN`、`GATEWAY_CONTROL_TOKEN`、`DISCORD_APPLICATION_PUBLIC_KEY`、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`NOTION_API_TOKEN`、`NOTION_DATA_SOURCE_ID` をWrangler secretsとして登録してください。`DISCORD_APPLICATION_ID` はWorkerの環境変数として設定します。R2 bucket名は `wrangler.jsonc` の `R2_BUCKET_NAME` と `RECORDINGS` bindingで指定します。
+`.dev.vars` はGit管理対象外です。実環境では `GATEWAY_API_TOKEN`、`GATEWAY_CONTROL_TOKEN`、`DISCORD_APPLICATION_PUBLIC_KEY`、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`NOTION_API_TOKEN` をWrangler secretsとして登録してください。`DISCORD_APPLICATION_ID` はWorkerの環境変数として設定します。R2 bucket名は `wrangler.jsonc` の `R2_BUCKET_NAME` と `RECORDINGS` bindingで指定します。
 
 gatewayとWorkerのHTTP契約は [`../../packages/contracts/openapi.yaml`](../../packages/contracts/openapi.yaml) にあります。

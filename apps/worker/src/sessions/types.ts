@@ -9,6 +9,7 @@ export type VoiceSession = {
 	startedAt: string | null;
 	endedAt: string | null;
 	manifestKey: string;
+	notionParentPageId: string | null;
 	durationMs: number | null;
 	manifestSizeBytes: number | null;
 	errorCode: string | null;

@@ -16,8 +16,8 @@ type MeetingManifest = {
 };
 
 export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSession): Promise<string> {
-	if (!env.NOTION_API_TOKEN || !env.NOTION_DATA_SOURCE_ID) {
-		throw new Error('Notion API token and data source ID are required');
+	if (!env.NOTION_API_TOKEN || !session.notionParentPageId) {
+		throw new Error('Notion API token and parent page ID are required');
 	}
 
 	const object = await env.RECORDINGS.get(session.manifestKey);
@@ -25,7 +25,7 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		throw new Error('Session manifest was not found in R2');
 	}
 	const manifest = parseManifest(await object.json<unknown>(), session.sessionId);
-	const title = `会議 ${formatTimestamp(manifest.startedAt)} JST (${session.sessionId.slice(0, 8)})`;
+	const title = 'AI議事録';
 	const markdown = [
 		`# ${title}`,
 		'',
@@ -53,7 +53,7 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 			'Notion-Version': NOTION_API_VERSION,
 		},
 		body: JSON.stringify({
-			parent: { type: 'data_source_id', data_source_id: env.NOTION_DATA_SOURCE_ID },
+			parent: { page_id: session.notionParentPageId },
 			markdown,
 		}),
 	});
