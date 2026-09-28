@@ -15,5 +15,5 @@ export type VoiceSession = {
 };
 
 export type SessionOperation =
-	| { ok: true; session: VoiceSession }
+	| { ok: true; session: VoiceSession; completedNow?: boolean }
 	| { ok: false; code: 'SESSION_ALREADY_ACTIVE' | 'SESSION_NOT_FOUND' | 'INVALID_SESSION_STATE'; session?: VoiceSession };

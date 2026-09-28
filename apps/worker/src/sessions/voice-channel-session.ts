@@ -140,7 +140,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			return { ok: false, code: 'SESSION_NOT_FOUND' };
 		}
 		if (session.state === 'completed') {
-			return { ok: true, session: toSession(session) };
+			return { ok: true, session: toSession(session), completedNow: false };
 		}
 		if (session.state !== 'processing') {
 			return { ok: false, code: 'INVALID_SESSION_STATE', session: toSession(session) };
@@ -156,7 +156,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			metadata.manifestSizeBytes,
 			sessionId,
 		);
-		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
+		return { ok: true, session: toSession(this.findBySessionId(sessionId)!), completedNow: true };
 	}
 
 	async failSession(sessionId: string, errorCode: string): Promise<SessionOperation> {

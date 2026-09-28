@@ -1,5 +1,6 @@
 import { createUploadTargets } from '../r2/presigned-uploads.js';
 import type { WorkerEnv } from '../env.js';
+import { publishMeetingToNotion } from '../notion/meeting-pages.js';
 import type { SessionOperation } from '../sessions/types.js';
 
 const API_PREFIX = '/api/v1';
@@ -7,16 +8,16 @@ const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_KEY_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\d{17,20})$/i;
 
-export async function handleSessionApi(request: Request, env: WorkerEnv): Promise<Response> {
+export async function handleSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
 	try {
-		return await routeSessionApi(request, env);
+		return await routeSessionApi(request, env, ctx);
 	} catch (error) {
 		console.error('[session-api] request failed', error instanceof Error ? error.name : 'unknown error');
 		return json({ error: { code: 'INTERNAL_ERROR' } }, 500);
 	}
 }
 
-async function routeSessionApi(request: Request, env: WorkerEnv): Promise<Response> {
+async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
 	const url = new URL(request.url);
 	if (!url.pathname.startsWith(`${API_PREFIX}/`)) {
 		return json({ error: { code: 'NOT_FOUND' } }, 404);
@@ -77,13 +78,25 @@ async function routeSessionApi(request: Request, env: WorkerEnv): Promise<Respon
 			if (!isCompletionBody(body)) {
 				return json({ error: { code: 'INVALID_BODY' } }, 400);
 			}
-			return operationResponse(
-				await session.completeSession(sessionId, {
-					endedAt: body.endedAt,
-					durationMs: body.durationMs,
-					manifestSizeBytes: body.manifestSizeBytes,
-				}),
-			);
+			const result = await session.completeSession(sessionId, {
+				endedAt: body.endedAt,
+				durationMs: body.durationMs,
+				manifestSizeBytes: body.manifestSizeBytes,
+			});
+			if (result.ok && result.completedNow && (env.NOTION_API_TOKEN || env.NOTION_DATA_SOURCE_ID)) {
+				if (!env.NOTION_API_TOKEN || !env.NOTION_DATA_SOURCE_ID) {
+					console.error('[notion] export is configured incompletely');
+				} else {
+					ctx.waitUntil(
+						publishMeetingToNotion(env, result.session)
+							.then((pageUrl) => console.log('[notion] meeting page created', pageUrl))
+							.catch((error: unknown) => {
+								console.error(`[notion] export failed for session ${sessionId}`, error instanceof Error ? error.message : 'unknown error');
+							}),
+					);
+				}
+			}
+			return operationResponse(result);
 		}
 		case 'failed': {
 			const body = await parseJson(request);

@@ -5,3 +5,5 @@ DISCORD_APPLICATION_PUBLIC_KEY=replace-with-your-discord-application-public-key
 R2_ACCOUNT_ID=replace-with-your-cloudflare-account-id
 R2_ACCESS_KEY_ID=replace-with-an-r2-api-access-key
 R2_SECRET_ACCESS_KEY=replace-with-the-matching-r2-api-secret
+NOTION_API_TOKEN=
+NOTION_DATA_SOURCE_ID=

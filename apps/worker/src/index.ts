@@ -14,6 +14,6 @@ export default {
 		if (pathname === '/api/v1/gateway-control/connect') {
 			return env.GATEWAY_CONTROL.getByName('default').fetch(request);
 		}
-		return handleSessionApi(request, env);
+		return handleSessionApi(request, env, ctx);
 	},
 } satisfies ExportedHandler<WorkerEnv>;

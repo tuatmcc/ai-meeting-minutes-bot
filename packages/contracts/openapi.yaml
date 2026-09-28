@@ -124,6 +124,7 @@ paths:
       - $ref: '#/components/parameters/sessionId'
     post:
       operationId: completeSession
+      description: Marks the session complete and schedules a Notion page export when Notion is configured.
       requestBody:
         required: true
         content:
