@@ -1,6 +1,6 @@
 # Voice Gateway
 
-Discord Voiceから音声を受信し、30秒単位でQwen3-ASRへ送り文字起こしするサービスです。Discordの`/start`・`/stop`コマンドはWorkerが受け付け、gatewayはWorkerへ外向きWebSocketで接続して制御を受け取ります。
+Discord Voiceから音声を受信し、30秒単位でQwen3-ASRへ送り文字起こしするサービスです。Discordの`/start`・`/stop`・`/imakita`コマンドはWorkerが受け付け、gatewayはWorkerへ外向きWebSocketで接続して制御を受け取ります。
 
 ## 動作
 
@@ -8,6 +8,7 @@ Discord Voiceから音声を受信し、30秒単位でQwen3-ASRへ送り文字�
 - 16kHz mono音声を30秒ごとに切り出し、2秒の重複を含めてASR `/transcribe` へ送信
 - ASRの確定結果を区間ごとに一時チェックポイントへ保存し、会議終了時に結合
 - VCのチャットで実行した`/start`・`/stop`から、そのVCのセッションを開始・終了
+- VCのチャットで`/imakita`を実行すると、ASRが確定した区間までをWorkers AIで短く要約
 - VC単位Durable Objectの状態を更新し、ASR結果を含むmanifestだけをR2へアップロード
 - manifestだけを一時保存し、正常終了後に削除
 

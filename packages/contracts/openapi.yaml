@@ -87,6 +87,42 @@ paths:
           $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/summary:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: summarizeLiveTranscript
+      description: Creates a short catch-up summary from finalized transcript segments while the session is recording.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transcript]
+              properties:
+                transcript:
+                  type: string
+                  maxLength: 120000
+      responses:
+        '200':
+          description: Catch-up summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [summary]
+                properties:
+                  summary:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/upload-targets:
     parameters:
       - $ref: '#/components/parameters/guildId'

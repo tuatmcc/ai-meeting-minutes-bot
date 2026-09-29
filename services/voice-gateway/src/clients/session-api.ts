@@ -37,6 +37,14 @@ export class SessionApi {
 		return result.session;
 	}
 
+	async summarizeTranscript(guildId: string, channelId: string, sessionId: string, transcript: string): Promise<string> {
+		const result = await this.request<{ summary: string }>(this.sessionPath(guildId, channelId, sessionId, 'summary'), {
+			method: 'POST',
+			body: JSON.stringify({ transcript }),
+		});
+		return result.summary;
+	}
+
 	async markRecordingStarted(guildId: string, channelId: string, sessionId: string): Promise<void> {
 		await this.request(this.sessionPath(guildId, channelId, sessionId, 'recording-started'), { method: 'POST' });
 	}

@@ -1,6 +1,6 @@
 # Worker
 
-Cloudflare WorkerはDiscordの `/start`・`/stop` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
+Cloudflare WorkerはDiscordの `/start`・`/stop`・`/imakita` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
 各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。音声ファイルは保存せず、文字起こしと録音メタデータを含むmanifestのみR2へ保存します。Workerはmanifest用の短命なPUT署名付きURLを発行し、gatewayへR2 APIキーを渡しません。
 
@@ -8,30 +8,33 @@ Cloudflare WorkerはDiscordの `/start`・`/stop` Interaction、voice-gateway向
 
 Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホスト>/interactions` に設定します。アプリケーションIDと公開鍵をWorker環境に設定し、`GATEWAY_CONTROL_TOKEN` にはvoice-gatewayと共有するランダムな値を設定します。
 
-テスト用guildへコマンドを登録するには、`DISCORD_APPLICATION_ID`、`DISCORD_TEST_GUILD_ID`、`DISCORD_BOT_TOKEN` を環境変数に設定して次を実行します。
+DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal commandとして登録されます。Workflowで使うため、GitHub Actions secretsに `DISCORD_BOT_TOKEN` を登録してください。アプリケーションIDは `wrangler.jsonc` とGitHub Actionsの設定で同じ値を使います。
+
+ローカルから手動で登録する場合は、`DISCORD_APPLICATION_ID` と `DISCORD_BOT_TOKEN` を環境変数に設定して次を実行します。
 
 ```sh
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で `/start` または `/stop` と入力します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、録音完了後にそのページの下へAI議事録ページを作成します。URLは任意です。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。`/imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、録音完了後にそのページの下へAI議事録ページを作成します。URLは任意です。
 
 ## Notionへの保存
 
-`/start` に既存のNotion議事録ページURLが指定されていると、セッション完了後にWorkerはR2のmanifestを読み、文字起こしと会議情報をそのページの子ページ「AI議事録」として保存します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。要約生成は次の段階で追加します。
+`/start` に既存のNotion議事録ページURLが指定されていると、セッション完了後にWorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページの子ページ「AI議事録」として保存します。AI要約に失敗した場合も全文字起こしを含むページを作成します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。
 
 1. Notion Developer Portalでinternal connectionを作成し、`Insert content` と `Insert property` の権限を付けます。
 2. 対象の議事録ページにconnectionを追加します。データベース内のページの場合は、そのデータベースにconnectionを追加します。
 3. ローカルでは `.dev.vars` に `NOTION_API_TOKEN` を設定します。本番ではWorker secretとして登録します。
 
-子ページの本文にはsession情報と全文字起こしが入ります。
+子ページの本文にはsession情報、要約、全文字起こしが入ります。
 
 ## ローカル開発
 
 1. `pnpm exec wrangler r2 bucket create ai-meeting-minutes-recordings` でR2 bucketを作成します。
 2. `.dev.vars.example` を `.dev.vars` にコピーし、Cloudflare account IDと、対象bucketへの書き込み権限を持つR2 API認証情報を設定します。
 3. `GATEWAY_API_TOKEN` に十分長いランダム値を設定します。同じ値をvoice-gatewayの `WORKER_API_TOKEN` に設定します。
-4. `pnpm --filter @ai-meeting-minutes/worker dev` でWorkerを起動します。
+4. Workers AI bindingは `wrangler.jsonc` で設定済みです。ローカル開発でもCloudflare上のAI bindingを使います。
+5. `pnpm --filter @ai-meeting-minutes/worker dev` でWorkerを起動します。
 
 voice-gateway側は [`../../services/voice-gateway/.env.example`](../../services/voice-gateway/.env.example) を `.env` にコピーして設定できます。
 
