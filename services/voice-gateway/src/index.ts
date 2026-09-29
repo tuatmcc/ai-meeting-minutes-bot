@@ -1,6 +1,6 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Client, Events, GatewayIntentBits, PermissionsBitField, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
 import { loadConfig } from './config.ts';
 import { AsrApi } from './clients/asr-api.ts';
@@ -36,39 +36,6 @@ const clientReady = new Promise<void>((resolve) => {
 		resolve();
 	});
 });
-
-const applicationCommands = [
-	new SlashCommandBuilder()
-		.setName('start')
-		.setDescription('このボイスチャンネルで録音を開始します')
-		.addStringOption((option) =>
-			option.setName('notion_url').setDescription('AI議事録を作成する既存のNotion議事録ページURL').setRequired(false).setMaxLength(2048),
-		),
-	new SlashCommandBuilder().setName('stop').setDescription('このボイスチャンネルの録音を停止します'),
-	new SlashCommandBuilder().setName('imakita').setDescription('会議の現在地を短く要約します'),
-].map((command) => command.toJSON());
-
-async function registerApplicationCommands(): Promise<void> {
-	const applicationId = client.application?.id;
-	if (!applicationId) {
-		throw new Error('Discord application is unavailable after client is ready');
-	}
-
-	const rest = new REST({ version: '10' }).setToken(config.token);
-	const guildIds = [...client.guilds.cache.keys()];
-	let registeredGuildCount = 0;
-
-	for (const guildId of guildIds) {
-		try {
-			await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: applicationCommands });
-			registeredGuildCount++;
-		} catch (error) {
-			console.error(`[discord] command registration failed for guild ${guildId}`, error instanceof Error ? error.message : error);
-		}
-	}
-
-	console.log(`[discord] registered ${applicationCommands.length} commands in ${registeredGuildCount}/${guildIds.length} guild(s)`);
-}
 
 async function startRecording(command: GatewayCommand): Promise<void> {
 	const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
@@ -290,7 +257,6 @@ client.on(Events.Error, (error) => {
 
 await client.login(config.token);
 await clientReady;
-await registerApplicationCommands();
 
 gatewayControl = new GatewayControlClient(config.workerControlUrl, config.workerControlToken, handleGatewayCommand);
 gatewayControlTask = gatewayControl.run();
