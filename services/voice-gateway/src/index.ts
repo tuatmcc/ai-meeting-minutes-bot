@@ -185,6 +185,28 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 }
 
 async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
+	if (command.action === 'imakita') {
+		const recording = activeRecordings.get(command.sessionId);
+		let content: string;
+		if (!recording || !sameSession(recording.command, command)) {
+			content = 'このVCの録音が見つかりません。';
+		} else {
+			try {
+				const transcript = recording.asrSegmenter.getSnapshot();
+				const summary = await sessionApi.summarizeTranscript(command.guildId, command.channelId, command.sessionId, transcript);
+				content = '**今北産業**\n' + summary;
+				if (content.length > 1_900) {
+					content = content.slice(0, 1_897) + '…';
+				}
+			} catch (error) {
+				console.error('[imakita] summary failed', error instanceof Error ? error.name : 'unknown error');
+				content = '要約を作成できませんでした。文字起こしの確定後にもう一度お試しください。';
+			}
+		}
+		await editDiscordInteraction(command.applicationId, command.interactionToken, content);
+		return;
+	}
+
 	if (command.action === 'start') {
 		try {
 			await startRecording(command);
@@ -205,6 +227,24 @@ async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
 		return;
 	}
 	await stopRecording(recording);
+}
+
+async function editDiscordInteraction(applicationId: string, token: string, content: string): Promise<void> {
+	try {
+		const response = await fetch(
+			'https://discord.com/api/v10/webhooks/' + encodeURIComponent(applicationId) + '/' + encodeURIComponent(token) + '/messages/@original',
+			{
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ content }),
+			},
+		);
+		if (!response.ok) {
+			console.error('[imakita] Discord response update failed (' + response.status + ')');
+		}
+	} catch (error) {
+		console.error('[imakita] Discord response update failed', error instanceof Error ? error.name : 'unknown error');
+	}
 }
 
 function sameSession(left: GatewayCommand, right: GatewayCommand): boolean {

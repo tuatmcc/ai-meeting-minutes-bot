@@ -28,6 +28,7 @@ if (missingVariables.length > 0) {
 			],
 		},
 		{ name: 'stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
+		{ name: 'imakita', description: '会議の現在地を短く要約します', type: 1 },
 	];
 
 	const response = await fetch(

@@ -1,5 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
+import { summarizeMeetingMinutes } from '../ai/summaries.js';
 
 const NOTION_API_VERSION = '2026-03-11';
 
@@ -25,6 +26,13 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		throw new Error('Session manifest was not found in R2');
 	}
 	const manifest = parseManifest(await object.json<unknown>(), session.sessionId);
+	let summary: string;
+	try {
+		summary = await summarizeMeetingMinutes(env, manifest.transcription.text);
+	} catch (error) {
+		console.error('[notion] AI summary generation failed', error instanceof Error ? error.name : 'unknown error');
+		summary = '要約を生成できませんでした。文字起こしを参照してください。';
+	}
 	const title = 'AI議事録';
 	const markdown = [
 		`# ${title}`,
@@ -39,6 +47,10 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		`- 録音時間: ${formatDuration(manifest.durationMs)}`,
 		`- ASRモデル: ${manifest.transcription.model}`,
 		`- 言語: ${manifest.transcription.language ?? '不明'}`,
+		'',
+		'## 要約',
+		'',
+		summary,
 		'',
 		'## 文字起こし',
 		'',

@@ -28,7 +28,7 @@ type DiscordInteraction = {
 };
 
 type ParsedCommand = {
-	action: 'start' | 'stop';
+	action: 'start' | 'stop' | 'imakita';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
@@ -88,7 +88,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 		if (parsed.reason === 'invalid-notion-url') {
 			return interactionMessage('Notionの議事録ページURLを指定してください。');
 		}
-		return interactionMessage('対象のボイスチャンネルのチャットで `/start` または `/stop` を実行してください。');
+		return interactionMessage('対象のボイスチャンネルのチャットで `/start`、`/stop`、または `/imakita` を実行してください。');
 	}
 
 	const command = parsed.command;
@@ -102,9 +102,13 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		return;
 	}
 
-	let content: string;
+	if (command.action === 'imakita') {
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, '今北産業を作成しています。文字起こしの確定を待つ場合があります。');
+	}
+
+	let content: string | null;
 	try {
-		content = await executeCommand(command, interaction.id, env);
+		content = await executeCommand(command, interaction.id, token, env);
 	} catch (error) {
 		console.error(
 			JSON.stringify({
@@ -118,10 +122,17 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		content = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
 	}
 
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
+	if (content !== null) {
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
+	}
 }
 
-async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<string> {
+async function executeCommand(
+	command: ParsedCommand,
+	interactionId: string,
+	interactionToken: string,
+	env: WorkerEnv,
+): Promise<string | null> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'start') {
 		if (command.notionParentPageId && !env.NOTION_API_TOKEN) {
@@ -152,6 +163,24 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 	}
 
 	const active = await session.getActiveSession();
+	if (command.action === 'imakita') {
+		if (!active || active.guildId !== command.guildId || active.channelId !== command.channelId) {
+			return 'この VC では録音していません。';
+		}
+		if (active.state !== 'recording') {
+			return active.state === 'processing' ? '録音を終了し、文字起こしを処理中です。' : 'この VC はまだ録音を開始していません。';
+		}
+		await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
+			commandId: interactionId,
+			action: 'imakita',
+			guildId: command.guildId,
+			channelId: command.channelId,
+			sessionId: active.sessionId,
+			applicationId: env.DISCORD_APPLICATION_ID,
+			interactionToken,
+		});
+		return null;
+	}
 	if (!active || active.guildId !== command.guildId || active.channelId !== command.channelId) {
 		return `この VC では録音していません: <#${command.channelId}>`;
 	}
@@ -200,7 +229,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'start' && name !== 'stop')
+		(name !== 'start' && name !== 'stop' && name !== 'imakita')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}

@@ -8,4 +8,4 @@ Discord 上の会議音声を認識し、Workers AI を活用した議事録の�
 - `services/voice-gateway`: Discord Voice への接続と録音を担うNode.jsサービスです。WAVはR2に送らず、manifestのみアップロードします。
 - `services/asr`: Qwen3-ASR-0.6B/vLLMによる音声認識を担うGPU側サービスです。Windows + Docker DesktopのWSL2 GPU環境向けComposeを含みます。
 
-Workerとvoice-gateway間のHTTP契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discordの `/start`・`/stop` コマンドから録音と文字起こしのセッションを操作できます。
+Workerとvoice-gateway間のHTTP契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discordの `/start`・`/stop` コマンドから録音を操作し、`/imakita` で進行中の会議を要約できます。録音終了後、指定されたNotionページへAI要約と全文字起こしを保存します。

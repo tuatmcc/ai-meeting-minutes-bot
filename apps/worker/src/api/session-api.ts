@@ -1,12 +1,15 @@
 import { createUploadTargets } from '../r2/presigned-uploads.js';
 import type { WorkerEnv } from '../env.js';
 import { publishMeetingToNotion } from '../notion/meeting-pages.js';
+import { summarizeForCatchUp } from '../ai/summaries.js';
 import type { SessionOperation } from '../sessions/types.js';
 
 const API_PREFIX = '/api/v1';
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDEMPOTENCY_KEY_PATTERN = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|\d{17,20})$/i;
+const MAX_TRANSCRIPT_BYTES = 480_000;
+const MAX_TRANSCRIPT_CHARS = 120_000;
 
 export async function handleSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
 	try {
@@ -62,6 +65,20 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 
 	const sessionId = segments[7];
 	switch (segments[8]) {
+		case 'summary': {
+			const activeSession = await session.getActiveSession();
+			if (activeSession?.sessionId !== sessionId || activeSession.state !== 'recording') {
+				return json({ error: { code: 'SESSION_NOT_RECORDING' } }, 409);
+			}
+			const transcript = await parseTranscriptBody(request);
+			if (transcript === null) {
+				return json({ error: { code: 'INVALID_TRANSCRIPT' } }, 400);
+			}
+			if (!transcript.trim()) {
+				return json({ error: { code: 'TRANSCRIPT_NOT_READY' } }, 409);
+			}
+			return json({ summary: await summarizeForCatchUp(env, transcript) });
+		}
 		case 'recording-started':
 			return operationResponse(await session.markRecordingStarted(sessionId));
 		case 'processing-started':
@@ -129,6 +146,55 @@ async function parseJson(request: Request): Promise<unknown> {
 		return await request.json();
 	} catch {
 		return undefined;
+	}
+}
+
+async function parseTranscriptBody(request: Request): Promise<string | null> {
+	const contentLength = request.headers.get('Content-Length');
+	if (contentLength !== null && Number(contentLength) > MAX_TRANSCRIPT_BYTES) {
+		return null;
+	}
+
+	if (!request.body) {
+		return null;
+	}
+	const reader = request.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			total += value.byteLength;
+			if (total > MAX_TRANSCRIPT_BYTES) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		return null;
+	} finally {
+		reader.releaseLock();
+	}
+
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	try {
+		const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes));
+		if (typeof body !== 'object' || body === null || !('transcript' in body)) {
+			return null;
+		}
+		const transcript = (body as Record<string, unknown>).transcript;
+		return typeof transcript === 'string' && transcript.length <= MAX_TRANSCRIPT_CHARS ? transcript : null;
+	} catch {
+		return null;
 	}
 }
 

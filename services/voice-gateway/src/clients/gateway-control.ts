@@ -1,10 +1,12 @@
-export type GatewayCommand = {
+type BaseGatewayCommand = {
 	commandId: string;
-	action: 'start' | 'stop';
 	guildId: string;
 	channelId: string;
 	sessionId: string;
 };
+
+export type GatewayCommand = BaseGatewayCommand &
+	({ action: 'start' | 'stop' } | { action: 'imakita'; applicationId: string; interactionToken: string });
 
 type ControlMessage = { type: 'authenticated' } | { type: 'command'; command: GatewayCommand };
 
@@ -204,16 +206,28 @@ function isGatewayCommand(value: unknown): value is GatewayCommand {
 	if (!isRecord(value)) {
 		return false;
 	}
-	return (
+	const hasSessionIdentity =
 		typeof value.commandId === 'string' &&
 		(SNOWFLAKE_PATTERN.test(value.commandId) || UUID_PATTERN.test(value.commandId)) &&
-		(value.action === 'start' || value.action === 'stop') &&
 		typeof value.guildId === 'string' &&
 		SNOWFLAKE_PATTERN.test(value.guildId) &&
 		typeof value.channelId === 'string' &&
 		SNOWFLAKE_PATTERN.test(value.channelId) &&
 		typeof value.sessionId === 'string' &&
-		UUID_PATTERN.test(value.sessionId)
+		UUID_PATTERN.test(value.sessionId);
+	if (!hasSessionIdentity) {
+		return false;
+	}
+	if (value.action === 'start' || value.action === 'stop') {
+		return true;
+	}
+	return (
+		value.action === 'imakita' &&
+		typeof value.applicationId === 'string' &&
+		SNOWFLAKE_PATTERN.test(value.applicationId) &&
+		typeof value.interactionToken === 'string' &&
+		value.interactionToken.length > 0 &&
+		value.interactionToken.length <= 1024
 	);
 }
 

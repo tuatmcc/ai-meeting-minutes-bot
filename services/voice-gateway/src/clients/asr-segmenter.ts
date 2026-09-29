@@ -108,6 +108,10 @@ export class AsrSegmenter {
 		return this.finalResult;
 	}
 
+	getSnapshot(): string {
+		return this.completedSegments.reduce((text, segment) => mergeTranscriptText(text, segment.text), '');
+	}
+
 	private enqueue(segment: PendingSegment): void {
 		if (this.failure) {
 			return;

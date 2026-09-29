@@ -12,6 +12,10 @@
 			"bucket_name": "ai-meeting-minutes-recordings",
 		},
 	],
+	"ai": {
+		"binding": "AI",
+		"remote": true,
+	},
 	"durable_objects": {
 		"bindings": [
 			{
