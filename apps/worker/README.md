@@ -8,11 +8,7 @@ Cloudflare WorkerはDiscordの `/start`・`/stop`・`/imakita` Interaction、voi
 
 Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホスト>/interactions` に設定します。アプリケーションIDと公開鍵をWorker環境に設定し、`GATEWAY_CONTROL_TOKEN` にはvoice-gatewayと共有するランダムな値を設定します。
 
-テスト用guildへコマンドを登録するには、`DISCORD_APPLICATION_ID`、`DISCORD_TEST_GUILD_ID`、`DISCORD_BOT_TOKEN` を環境変数に設定して次を実行します。
-
-```sh
-pnpm --filter @ai-meeting-minutes/worker register:commands
-```
+Discordコマンドはvoice-gatewayの起動時に、Botが参加している各guildへ登録されます。guild commandは即時反映されます。
 
 Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。`/imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、録音完了後にそのページの下へAI議事録ページを作成します。URLは任意です。
 

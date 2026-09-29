@@ -7,8 +7,7 @@
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"test": "vitest",
-		"cf-typegen": "wrangler types",
-		"register:commands": "node scripts/register-commands.mjs"
+		"cf-typegen": "wrangler types"
 	},
 	"dependencies": {
 		"aws4fetch": "^1.0.20"

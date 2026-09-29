@@ -18,6 +18,8 @@ Discord Voiceから音声を受信し、30秒単位でQwen3-ASRへ送り文字�
 
 `.env.example`を参考に環境変数を設定し、ASRサービスと同じ`ASR_API_TOKEN`を設定してからリポジトリルートから起動します。
 
+起動するとDiscordの`/start`・`/stop`・`/imakita`コマンドを、Botが参加している各guildへ登録します。guild commandは即時反映されます。
+
 ```sh
 pnpm --filter @ai-meeting-minutes/voice-gateway dev
 ```
