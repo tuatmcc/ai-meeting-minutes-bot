@@ -1,5 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
+import { createMeetingPage } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
@@ -149,6 +150,22 @@ async function executeCommand(
 			return sessionStateMessage(result.session, command.channelId);
 		}
 
+		let notionPageUrl = result.session.notionPageUrl;
+		let notionPageCreationFailed = false;
+		if (result.session.notionParentPageId && !result.session.notionPageId) {
+			try {
+				const page = await createMeetingPage(env, result.session);
+				const savedPage = await session.setNotionPage(result.session.sessionId, page.pageId, page.pageUrl);
+				if (!savedPage.ok) {
+					throw new Error(`Could not save Notion page ID: ${savedPage.code}`);
+				}
+				notionPageUrl = savedPage.session.notionPageUrl;
+			} catch (error) {
+				notionPageCreationFailed = true;
+				console.error('[notion] initial page creation failed', error instanceof Error ? error.message : 'unknown error');
+			}
+		}
+
 		const queued = await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
 			commandId: interactionId,
 			action: 'start',
@@ -156,7 +173,13 @@ async function executeCommand(
 			channelId: command.channelId,
 			sessionId: result.session.sessionId,
 		});
-		const notionMessage = command.notionParentPageId ? '（終了後、指定したNotionページの下にAI議事録を作成します）' : '';
+		const notionMessage = notionPageUrl
+			? ` Notionページ: <${notionPageUrl}>（録音終了後に内容を更新します）`
+			: command.notionParentPageId
+				? notionPageCreationFailed
+					? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
+					: ' Notionページは録音終了後に更新します。'
+				: '';
 		return queued.gatewayConnected
 			? `録音の開始要求を送信しました: <#${command.channelId}>${notionMessage}`
 			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;

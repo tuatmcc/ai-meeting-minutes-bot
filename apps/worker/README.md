@@ -16,11 +16,11 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。`/imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、録音完了後にそのページの下へAI議事録ページを作成します。URLは任意です。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。`/imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、開始時にそのページの下へAI議事録ページを作成し、録音完了後に内容を更新します。URLは任意です。
 
 ## Notionへの保存
 
-`/start` に既存のNotion議事録ページURLが指定されていると、セッション完了後にWorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページの子ページ「AI議事録」として保存します。AI要約に失敗した場合も全文字起こしを含むページを作成します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。
+`/start` に既存のNotion議事録ページURLが指定されていると、開始時に子ページ「AI議事録」を作成してDiscordにリンクを返します。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に新規作成を再試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。
 
 1. Notion Developer Portalでinternal connectionを作成し、`Insert content` と `Insert property` の権限を付けます。
 2. 対象の議事録ページにconnectionを追加します。データベース内のページの場合は、そのデータベースにconnectionを追加します。

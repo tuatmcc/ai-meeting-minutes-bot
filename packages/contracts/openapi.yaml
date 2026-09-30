@@ -258,6 +258,8 @@ components:
         - endedAt
         - manifestKey
         - notionParentPageId
+        - notionPageId
+        - notionPageUrl
         - durationMs
         - manifestSizeBytes
         - errorCode
@@ -273,6 +275,8 @@ components:
         endedAt: { type: [string, 'null'], format: date-time }
         manifestKey: { type: string }
         notionParentPageId: { type: [string, 'null'], format: uuid }
+        notionPageId: { type: [string, 'null'], format: uuid }
+        notionPageUrl: { type: [string, 'null'], format: uri }
         durationMs: { type: [integer, 'null'], minimum: 0 }
         manifestSizeBytes: { type: [integer, 'null'], minimum: 1 }
         errorCode: { type: [string, 'null'] }

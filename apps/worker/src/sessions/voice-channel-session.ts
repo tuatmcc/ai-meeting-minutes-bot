@@ -13,6 +13,8 @@ type SessionRow = {
 	ended_at: string | null;
 	manifest_key: string;
 	notion_parent_page_id: string | null;
+	notion_page_id: string | null;
+	notion_page_url: string | null;
 	duration_ms: number | null;
 	manifest_size_bytes: number | null;
 	error_code: string | null;
@@ -34,6 +36,8 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					ended_at TEXT,
 					manifest_key TEXT NOT NULL,
 					notion_parent_page_id TEXT,
+					notion_page_id TEXT,
+					notion_page_url TEXT,
 					duration_ms INTEGER,
 					manifest_size_bytes INTEGER,
 					error_code TEXT
@@ -42,6 +46,12 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
 			if (!columns.some((column) => column.name === 'notion_parent_page_id')) {
 				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_parent_page_id TEXT');
+			}
+			if (!columns.some((column) => column.name === 'notion_page_id')) {
+				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_page_id TEXT');
+			}
+			if (!columns.some((column) => column.name === 'notion_page_url')) {
+				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_page_url TEXT');
 			}
 			ctx.storage.sql.exec('CREATE INDEX IF NOT EXISTS sessions_by_state ON sessions(state)');
 		});
@@ -91,6 +101,24 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			notionParentPageId,
 		);
 
+		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
+	}
+
+	async setNotionPage(sessionId: string, pageId: string, pageUrl: string | null): Promise<SessionOperation> {
+		const session = this.findBySessionId(sessionId);
+		if (!session) {
+			return { ok: false, code: 'SESSION_NOT_FOUND' };
+		}
+		if (session.notion_page_id) {
+			return { ok: true, session: toSession(session) };
+		}
+
+		this.ctx.storage.sql.exec(
+			'UPDATE sessions SET notion_page_id = ?, notion_page_url = ? WHERE session_id = ?',
+			pageId,
+			pageUrl,
+			sessionId,
+		);
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 	}
 
@@ -223,6 +251,8 @@ function toSession(row: SessionRow): VoiceSession {
 		endedAt: row.ended_at,
 		manifestKey: row.manifest_key,
 		notionParentPageId: row.notion_parent_page_id,
+		notionPageId: row.notion_page_id,
+		notionPageUrl: row.notion_page_url,
 		durationMs: row.duration_ms,
 		manifestSizeBytes: row.manifest_size_bytes,
 		errorCode: row.error_code,

@@ -16,6 +16,45 @@ type MeetingManifest = {
 	};
 };
 
+export type CreatedMeetingPage = {
+	pageId: string;
+	pageUrl: string | null;
+};
+
+export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): Promise<CreatedMeetingPage> {
+	if (!env.NOTION_API_TOKEN || !session.notionParentPageId) {
+		throw new Error('Notion API token and parent page ID are required');
+	}
+
+	const response = await fetch('https://api.notion.com/v1/pages', {
+		method: 'POST',
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+		body: JSON.stringify({
+			parent: { page_id: session.notionParentPageId },
+			markdown: [
+				'# AI議事録',
+				'',
+				'## 会議情報',
+				'',
+				`- セッションID: ${session.sessionId}`,
+				`- Guild ID: ${session.guildId}`,
+				`- Voice Channel ID: ${session.channelId}`,
+				`- 開始要求: ${formatTimestamp(session.createdAt)} JST`,
+				'',
+				'録音終了後に要約と文字起こしを追加します。',
+			].join('\n'),
+		}),
+	});
+	const body = await readNotionResponse(response);
+	if (typeof body.id !== 'string') {
+		throw new Error('Notion API returned a page without an ID');
+	}
+	return {
+		pageId: body.id,
+		pageUrl: typeof body.url === 'string' ? body.url : null,
+	};
+}
+
 export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSession): Promise<string> {
 	if (!env.NOTION_API_TOKEN || !session.notionParentPageId) {
 		throw new Error('Notion API token and parent page ID are required');
@@ -33,9 +72,8 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		console.error('[notion] AI summary generation failed', error instanceof Error ? error.name : 'unknown error');
 		summary = '要約を生成できませんでした。文字起こしを参照してください。';
 	}
-	const title = 'AI議事録';
 	const markdown = [
-		`# ${title}`,
+		'# AI議事録',
 		'',
 		'## 会議情報',
 		'',
@@ -57,30 +95,69 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		manifest.transcription.text || '文字起こし結果はありません。',
 	].join('\n');
 
-	const response = await fetch('https://api.notion.com/v1/pages', {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${env.NOTION_API_TOKEN}`,
-			'Content-Type': 'application/json',
-			'Notion-Version': NOTION_API_VERSION,
-		},
+	if (session.notionPageId) {
+		const response = await fetch(`https://api.notion.com/v1/pages/${session.notionPageId}/markdown`, {
+			method: 'PATCH',
+			headers: notionHeaders(env.NOTION_API_TOKEN),
+			body: JSON.stringify({ type: 'replace_content', replace_content: { new_str: markdown } }),
+		});
+		await readNotionResponse(response);
+		return session.notionPageUrl ?? session.notionPageId;
+	}
+
+	const createdPage = await createMeetingPage(env, session);
+	const response = await fetch(`https://api.notion.com/v1/pages/${createdPage.pageId}/markdown`, {
+		method: 'PATCH',
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+		body: JSON.stringify({ type: 'replace_content', replace_content: { new_str: markdown } }),
+	});
+	await readNotionResponse(response);
+	return createdPage.pageUrl ?? createdPage.pageId;
+}
+
+export async function markMeetingPageFailed(env: WorkerEnv, session: VoiceSession, errorCode: string): Promise<void> {
+	if (!env.NOTION_API_TOKEN || !session.notionPageId) {
+		return;
+	}
+
+	const response = await fetch(`https://api.notion.com/v1/pages/${session.notionPageId}/markdown`, {
+		method: 'PATCH',
+		headers: notionHeaders(env.NOTION_API_TOKEN),
 		body: JSON.stringify({
-			parent: { page_id: session.notionParentPageId },
-			markdown,
+			type: 'replace_content',
+			replace_content: {
+				new_str: [
+					'# AI議事録',
+					'',
+					'録音または文字起こしの処理に失敗しました。',
+					'',
+					`- セッションID: ${session.sessionId}`,
+					`- エラーコード: ${errorCode}`,
+				].join('\n'),
+			},
 		}),
 	});
+	await readNotionResponse(response);
+}
+
+function notionHeaders(token: string): HeadersInit {
+	return {
+		Authorization: `Bearer ${token}`,
+		'Content-Type': 'application/json',
+		'Notion-Version': NOTION_API_VERSION,
+	};
+}
+
+async function readNotionResponse(response: Response): Promise<Record<string, unknown>> {
 	const body: unknown = await response.json().catch(() => undefined);
 	if (!response.ok) {
 		const code = isRecord(body) && typeof body.code === 'string' ? ` (${body.code})` : '';
 		throw new Error(`Notion API returned ${response.status}${code}`);
 	}
 	if (!isRecord(body)) {
-		throw new Error('Notion API returned an invalid page response');
+		throw new Error('Notion API returned an invalid response');
 	}
-	if (typeof body.url === 'string') {
-		return body.url;
-	}
-	return typeof body.id === 'string' ? body.id : 'page URL unavailable';
+	return body;
 }
 
 function parseManifest(value: unknown, sessionId: string): MeetingManifest {
