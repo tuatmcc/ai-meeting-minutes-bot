@@ -1,6 +1,6 @@
 # Worker
 
-Cloudflare WorkerはDiscordの `/start`・`/stop`・`/imakita` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
+Cloudflare WorkerはDiscordの `/start`・`/stop`・`/imakita`・`/notion_retry` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
 各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。音声ファイルは保存せず、文字起こしと録音メタデータを含むmanifestのみR2へ保存します。Workerはmanifest用の短命なPUT署名付きURLを発行し、gatewayへR2 APIキーを渡しません。
 
@@ -18,11 +18,13 @@ pnpm --filter @ai-meeting-minutes/worker register:commands
 
 Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。`/imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。`/start notion_url:<Notion議事録ページURL>` を指定すると、開始時にそのページの下へAI議事録ページを作成し、録音完了後に内容を更新します。URLは任意です。
 
+`/notion_retry` は直近の完了セッションでNotion保存が失敗した場合に、ページ更新を再試行します。
+
 ## Notionへの保存
 
-`/start` に既存のNotion議事録ページURLが指定されていると、開始時に子ページ「AI議事録」を作成してDiscordにリンクを返します。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に新規作成を再試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログに出力されます。
+`/start` に既存のNotion議事録ページURLが指定されていると、開始時に子ページ「AI議事録」を作成してDiscordにリンクを返します。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に新規作成を再試行します。DOはNotion出力の状態・試行回数・直近の失敗理由を保存し、最終出力に失敗した場合は初回を含め最大5試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。Notion URLがない場合は保存処理を行いません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログとセッション状態に記録されます。
 
-1. Notion Developer Portalでinternal connectionを作成し、`Insert content` と `Insert property` の権限を付けます。
+1. Notion Developer Portalでinternal connectionを作成し、`Insert content` と `Update content` の権限を付けます。
 2. 対象の議事録ページにconnectionを追加します。データベース内のページの場合は、そのデータベースにconnectionを追加します。
 3. ローカルでは `.dev.vars` に `NOTION_API_TOKEN` を設定します。本番ではWorker secretとして登録します。
 

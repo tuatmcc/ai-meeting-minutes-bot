@@ -55,9 +55,9 @@ export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): 
 	};
 }
 
-export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSession): Promise<string> {
-	if (!env.NOTION_API_TOKEN || !session.notionParentPageId) {
-		throw new Error('Notion API token and parent page ID are required');
+export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSession): Promise<void> {
+	if (!env.NOTION_API_TOKEN || !session.notionPageId) {
+		throw new Error('Notion API token and page ID are required');
 	}
 
 	const object = await env.RECORDINGS.get(session.manifestKey);
@@ -95,24 +95,12 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		manifest.transcription.text || '文字起こし結果はありません。',
 	].join('\n');
 
-	if (session.notionPageId) {
-		const response = await fetch(`https://api.notion.com/v1/pages/${session.notionPageId}/markdown`, {
-			method: 'PATCH',
-			headers: notionHeaders(env.NOTION_API_TOKEN),
-			body: JSON.stringify({ type: 'replace_content', replace_content: { new_str: markdown } }),
-		});
-		await readNotionResponse(response);
-		return session.notionPageUrl ?? session.notionPageId;
-	}
-
-	const createdPage = await createMeetingPage(env, session);
-	const response = await fetch(`https://api.notion.com/v1/pages/${createdPage.pageId}/markdown`, {
+	const response = await fetch(`https://api.notion.com/v1/pages/${session.notionPageId}/markdown`, {
 		method: 'PATCH',
 		headers: notionHeaders(env.NOTION_API_TOKEN),
 		body: JSON.stringify({ type: 'replace_content', replace_content: { new_str: markdown } }),
 	});
 	await readNotionResponse(response);
-	return createdPage.pageUrl ?? createdPage.pageId;
 }
 
 export async function markMeetingPageFailed(env: WorkerEnv, session: VoiceSession, errorCode: string): Promise<void> {

@@ -260,6 +260,10 @@ components:
         - notionParentPageId
         - notionPageId
         - notionPageUrl
+        - notionPageStatus
+        - notionAttemptCount
+        - notionLastError
+        - notionNextAttemptAt
         - durationMs
         - manifestSizeBytes
         - errorCode
@@ -277,6 +281,12 @@ components:
         notionParentPageId: { type: [string, 'null'], format: uuid }
         notionPageId: { type: [string, 'null'], format: uuid }
         notionPageUrl: { type: [string, 'null'], format: uri }
+        notionPageStatus:
+          type: string
+          enum: [not_requested, unknown, pending, creating, created, queued, publishing, retrying, published, failed]
+        notionAttemptCount: { type: integer, minimum: 0 }
+        notionLastError: { type: [string, 'null'] }
+        notionNextAttemptAt: { type: [integer, 'null'], minimum: 0 }
         durationMs: { type: [integer, 'null'], minimum: 0 }
         manifestSizeBytes: { type: [integer, 'null'], minimum: 1 }
         errorCode: { type: [string, 'null'] }
