@@ -302,7 +302,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId } };
 }
 
-function parseNotionPageId(rawUrl: string): string | null {
+export function parseNotionPageId(rawUrl: string): string | null {
 	try {
 		const url = new URL(rawUrl.trim());
 		const hostname = url.hostname.toLowerCase();
@@ -321,7 +321,11 @@ function parseNotionPageId(rawUrl: string): string | null {
 		}
 
 		const lastSegment = url.pathname.split('/').filter(Boolean).at(-1);
-		const match = lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+		const selectedPageId = url.searchParams.get('p');
+		const match =
+			selectedPageId !== null
+				? selectedPageId.match(/^([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i)
+				: lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
 		if (!match) {
 			return null;
 		}
