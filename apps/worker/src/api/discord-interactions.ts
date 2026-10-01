@@ -87,7 +87,9 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		if (parsed.reason === 'invalid-notion-url') {
-			return interactionMessage('Notionの議事録ページURLを指定してください。');
+			return interactionMessage(
+				'Notionの個別ページのリンクを指定してください。データベース一覧で開いたページは、個別ページとして開き直してリンクをコピーしてください。',
+			);
 		}
 		return interactionMessage(
 			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、または `/notion_retry` を実行してください。',
@@ -302,12 +304,13 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId } };
 }
 
-function parseNotionPageId(rawUrl: string): string | null {
+export function parseNotionPageId(rawUrl: string): string | null {
 	try {
 		const url = new URL(rawUrl.trim());
 		const hostname = url.hostname.toLowerCase();
 		if (
 			url.protocol !== 'https:' ||
+			url.searchParams.has('p') ||
 			!(
 				hostname === 'notion.so' ||
 				hostname.endsWith('.notion.so') ||
