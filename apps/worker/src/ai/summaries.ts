@@ -56,13 +56,16 @@ async function generateSummary(
 			},
 			{
 				role: 'user',
-				content: chunkContext + instructions + '\n\n<transcript>\n' + transcript + '\n</transcript>',
+				// Qwen3 otherwise spends the output budget on reasoning before writing the summary.
+				content: chunkContext + instructions + '\n\n<transcript>\n' + transcript + '\n</transcript>\n/no_think',
 			},
 		],
 		max_tokens: partial ? 350 : style === 'minutes' ? 700 : 350,
 		temperature: 0.2,
 	});
-	const summary = extractResponseText(output)?.trim();
+	const summary = extractResponseText(output)
+		?.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '')
+		.trim();
 	if (!summary) {
 		throw new Error('Workers AI returned an empty summary');
 	}
