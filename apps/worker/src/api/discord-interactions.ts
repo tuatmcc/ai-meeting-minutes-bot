@@ -87,7 +87,9 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		if (parsed.reason === 'invalid-notion-url') {
-			return interactionMessage('Notionの議事録ページURLを指定してください。');
+			return interactionMessage(
+				'Notionの個別ページのリンクを指定してください。データベース一覧で開いたページは、個別ページとして開き直してリンクをコピーしてください。',
+			);
 		}
 		return interactionMessage(
 			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、または `/notion_retry` を実行してください。',
@@ -308,6 +310,7 @@ export function parseNotionPageId(rawUrl: string): string | null {
 		const hostname = url.hostname.toLowerCase();
 		if (
 			url.protocol !== 'https:' ||
+			url.searchParams.has('p') ||
 			!(
 				hostname === 'notion.so' ||
 				hostname.endsWith('.notion.so') ||
@@ -321,11 +324,7 @@ export function parseNotionPageId(rawUrl: string): string | null {
 		}
 
 		const lastSegment = url.pathname.split('/').filter(Boolean).at(-1);
-		const selectedPageId = url.searchParams.get('p');
-		const match =
-			selectedPageId !== null
-				? selectedPageId.match(/^([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i)
-				: lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+		const match = lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
 		if (!match) {
 			return null;
 		}

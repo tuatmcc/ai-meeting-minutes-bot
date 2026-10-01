@@ -8,12 +8,13 @@ describe('parseNotionPageId', () => {
 	it.each([
 		`https://app.notion.com/p/workspace/${DATABASE_ID}?v=abcdefabcdefabcdefabcdefabcdefab&p=${PAGE_ID.replaceAll('-', '')}&pm=s`,
 		`https://www.notion.so/${DATABASE_ID}?p=${PAGE_ID}`,
-	])('uses the opened page instead of the database in %s', (url) => {
-		expect(parseNotionPageId(url)).toBe(PAGE_ID);
+	])('rejects database view URLs with an opened page: %s', (url) => {
+		expect(parseNotionPageId(url)).toBeNull();
 	});
 
 	it.each([
 		`https://app.notion.com/p/meeting-${PAGE_ID.replaceAll('-', '')}`,
+		`https://app.notion.com/p/workspace/meeting-${PAGE_ID.replaceAll('-', '')}?v=${DATABASE_ID}`,
 		`https://www.notion.so/${PAGE_ID}?v=${DATABASE_ID}`,
 		`https://tuatmcc.notion.site/meeting-${PAGE_ID.toUpperCase()}`,
 	])('preserves direct page URL support for %s', (url) => {
