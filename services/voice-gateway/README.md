@@ -46,7 +46,7 @@ services/voice-gateway/var/recordings/<session-id>/
 
 `production.env.example`を`production.env`にコピーし、Discord Bot token、デプロイ済みWorkerのURL、Workerと共有する2つのtokenを設定します。R2の認証情報はWorker側だけに設定し、Gatewayには渡しません。
 
-このCompose定義は外部Dockerネットワーク`server_default`に参加します。ASRサービスを別ホストで起動する場合は、`ASR_API_URL`にそのホストのプライベートネットワーク上のアドレスを設定します。ASR側の`ASR_API_TOKEN`と同じ値を使い、ASRホストの8000番ポートへはプライベートネットワークまたはVPNから接続できるようにします。
+このCompose定義は外部Dockerネットワーク`server_default`と`asr_default`に参加します。ASRを同じDockerホスト上で`services/asr/compose.yaml`から起動する場合、`ASR_API_URL`には`http://asr:8000`を設定します。ASRサービスを別ホストで起動する場合は、`ASR_API_URL`をそのホストのプライベートネットワーク上のアドレスに変更してください。どちらの場合もASR側と同じ`ASR_API_TOKEN`を使い、別ホスト構成では8000番ポートへプライベートネットワークまたはVPNから接続できるようにします。
 
 ```sh
 cp production.env.example production.env
