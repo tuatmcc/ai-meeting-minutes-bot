@@ -19,20 +19,40 @@ afterEach(() => {
 });
 
 describe('Workers AI summaries', () => {
-	it.each([summarizeMeetingMinutes, summarizeForCatchUp])('disables thinking to reserve tokens for the summary', async (summarize) => {
-		run.mockImplementation(async (_model: string, input: { messages: { role: string; content: string }[] }) => {
-			const noThinking = input.messages.some((message) => message.content.endsWith('/no_think'));
-			return {
-				choices: [
-					{
-						message: { role: 'assistant', content: noThinking ? '- 展示会のデモを金曜日までに準備する。' : '', reasoning_content: '思考' },
-					},
-				],
-			};
-		});
+	it.each([
+		{ name: 'Notion', summarize: summarizeMeetingMinutes, model: '@cf/google/gemma-4-26b-a4b-it' },
+		{ name: 'imakita', summarize: summarizeForCatchUp, model: '@cf/qwen/qwen3-30b-a3b-fp8' },
+	])('uses the correct model without thinking for $name', async ({ name, summarize, model }) => {
+		run.mockImplementation(
+			async (
+				_model: string,
+				input: { messages: { role: string; content: string }[]; chat_template_kwargs?: { enable_thinking?: boolean } },
+			) => {
+				const noThinking =
+					input.chat_template_kwargs?.enable_thinking === false || input.messages.some((message) => message.content.endsWith('/no_think'));
+				return {
+					choices: [
+						{
+							message: {
+								role: 'assistant',
+								content: noThinking ? '- 展示会のデモを金曜日までに準備する。' : '',
+								reasoning_content: '思考',
+							},
+						},
+					],
+				};
+			},
+		);
 
 		await expect(summarize(workerEnv, transcript)).resolves.toBe('- 展示会のデモを金曜日までに準備する。');
 		expect(run).toHaveBeenCalledOnce();
+		expect(run).toHaveBeenCalledWith(
+			model,
+			expect.objectContaining(
+				name === 'Notion' ? { max_completion_tokens: 2_048, chat_template_kwargs: { enable_thinking: false } } : { max_tokens: 350 },
+			),
+		);
+		expect(run.mock.calls[0][1].messages.at(-1).content.endsWith('/no_think')).toBe(name === 'imakita');
 	});
 
 	it.each([
@@ -55,14 +75,24 @@ describe('Workers AI summaries', () => {
 		await expect(summarizeMeetingMinutes(workerEnv, transcript)).rejects.toThrow('Workers AI returned an empty summary');
 	});
 
-	it('disables thinking for every chunk and the final summary', async () => {
+	it.each([
+		{ name: 'Notion', summarize: summarizeMeetingMinutes, model: '@cf/google/gemma-4-26b-a4b-it' },
+		{ name: 'imakita', summarize: summarizeForCatchUp, model: '@cf/qwen/qwen3-30b-a3b-fp8' },
+	])('uses the correct model for every chunk and the final $name summary', async ({ name, summarize, model }) => {
 		run.mockResolvedValue({ response: '- デモを準備する。' });
 
-		await summarizeMeetingMinutes(workerEnv, 'あ'.repeat(8_001));
+		await summarize(workerEnv, 'あ'.repeat(8_001));
 
 		expect(run).toHaveBeenCalledTimes(3);
-		for (const [, input] of run.mock.calls) {
-			expect(input.messages.at(-1)?.content.endsWith('/no_think')).toBe(true);
+		for (const [calledModel, input] of run.mock.calls) {
+			expect(calledModel).toBe(model);
+			expect(input.messages.at(-1)?.content.endsWith('/no_think')).toBe(name === 'imakita');
+			if (name === 'Notion') {
+				expect(input.chat_template_kwargs).toEqual({ enable_thinking: false });
+			}
+		}
+		if (name === 'Notion') {
+			expect(run.mock.calls.map(([, input]) => input.max_completion_tokens)).toEqual([350, 350, 2_048]);
 		}
 	});
 });
