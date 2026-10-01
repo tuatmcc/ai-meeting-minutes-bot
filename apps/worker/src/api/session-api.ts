@@ -1,6 +1,6 @@
 import { createUploadTargets } from '../r2/presigned-uploads.js';
 import type { WorkerEnv } from '../env.js';
-import { publishMeetingToNotion } from '../notion/meeting-pages.js';
+import { markMeetingPageFailed } from '../notion/meeting-pages.js';
 import { summarizeForCatchUp } from '../ai/summaries.js';
 import type { SessionOperation } from '../sessions/types.js';
 
@@ -100,19 +100,6 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 				durationMs: body.durationMs,
 				manifestSizeBytes: body.manifestSizeBytes,
 			});
-			if (result.ok && result.completedNow && result.session.notionParentPageId) {
-				if (!env.NOTION_API_TOKEN) {
-					console.error('[notion] export skipped because the API token is missing');
-				} else {
-					ctx.waitUntil(
-						publishMeetingToNotion(env, result.session)
-							.then((pageUrl) => console.log('[notion] meeting page created', pageUrl))
-							.catch((error: unknown) => {
-								console.error(`[notion] export failed for session ${sessionId}`, error instanceof Error ? error.message : 'unknown error');
-							}),
-					);
-				}
-			}
 			return operationResponse(result);
 		}
 		case 'failed': {
@@ -120,7 +107,18 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 			if (!isErrorCodeBody(body)) {
 				return json({ error: { code: 'INVALID_BODY' } }, 400);
 			}
-			return operationResponse(await session.failSession(sessionId, body.errorCode));
+			const result = await session.failSession(sessionId, body.errorCode);
+			if (result.ok && result.session.notionPageId && env.NOTION_API_TOKEN) {
+				ctx.waitUntil(
+					markMeetingPageFailed(env, result.session, body.errorCode).catch((error: unknown) => {
+						console.error(
+							`[notion] failed session page update failed for ${sessionId}`,
+							error instanceof Error ? error.message : 'unknown error',
+						);
+					}),
+				);
+			}
+			return operationResponse(result);
 		}
 		default:
 			return json({ error: { code: 'NOT_FOUND' } }, 404);
