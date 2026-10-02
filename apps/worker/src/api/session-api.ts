@@ -2,6 +2,7 @@ import { createUploadTargets } from '../r2/presigned-uploads.js';
 import type { WorkerEnv } from '../env.js';
 import { markMeetingPageFailed } from '../notion/meeting-pages.js';
 import { summarizeForCatchUp } from '../ai/summaries.js';
+import { isValidAudio, parseSegmentMetadata, readAudio } from '../ai/transcription.js';
 import type { SessionOperation } from '../sessions/types.js';
 
 const API_PREFIX = '/api/v1';
@@ -65,6 +66,16 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 
 	const sessionId = segments[7];
 	switch (segments[8]) {
+		case 'transcribe': {
+			const metadata = parseSegmentMetadata(request.headers);
+			if (!metadata) return json({ error: { code: 'INVALID_SEGMENT_METADATA' } }, 400);
+			const audio = await readAudio(request);
+			if (!audio || !isValidAudio(audio, metadata)) return json({ error: { code: 'INVALID_AUDIO' } }, 400);
+			const result = await session.transcribeSegment(sessionId, metadata, audio);
+			if (result.ok) return json(result.transcription);
+			const status = result.code === 'SESSION_NOT_FOUND' ? 404 : result.code === 'TRANSCRIPTION_FAILED' ? 503 : 409;
+			return json({ error: { code: result.code } }, status);
+		}
 		case 'summary': {
 			const activeSession = await session.getActiveSession();
 			if (activeSession?.sessionId !== sessionId || activeSession.state !== 'recording') {

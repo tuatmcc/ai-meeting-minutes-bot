@@ -8,8 +8,6 @@ export type VoiceGatewayConfig = {
 	workerApiToken: string;
 	workerControlToken: string;
 	workerControlUrl: string;
-	asrApiUrl: string;
-	asrApiToken: string;
 	recordingsDir: string;
 };
 
@@ -41,15 +39,6 @@ function workerApiUrlEnv(): string {
 	return url.toString();
 }
 
-function asrApiUrlEnv(): string {
-	const value = requiredEnv('ASR_API_URL');
-	const url = new URL(value);
-	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-		throw new Error('ASR_API_URL must use HTTP or HTTPS');
-	}
-	return url.toString();
-}
-
 function workerControlUrl(workerApiUrl: string): string {
 	const url = new URL('/api/v1/gateway-control/connect', workerApiUrl);
 	url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -64,8 +53,6 @@ export function loadConfig(): VoiceGatewayConfig {
 		workerApiToken: requiredEnv('WORKER_API_TOKEN'),
 		workerControlToken: requiredEnv('WORKER_CONTROL_TOKEN'),
 		workerControlUrl: workerControlUrl(workerApiUrl),
-		asrApiUrl: asrApiUrlEnv(),
-		asrApiToken: requiredEnv('ASR_API_TOKEN'),
 		recordingsDir: resolve(process.env.RECORDINGS_DIR ?? 'var/recordings'),
 	};
 }

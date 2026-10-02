@@ -2,7 +2,9 @@
 
 Cloudflare WorkerはDiscordの `/start`・`/stop`・`/imakita`・`/notion_retry` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
-各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。音声ファイルは保存せず、文字起こしと録音メタデータを含むmanifestのみR2へ保存します。Workerはmanifest用の短命なPUT署名付きURLを発行し、gatewayへR2 APIキーを渡しません。
+各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル ASR サーバーは不要です。
+
+音声は推論前に R2 へ保存し、成功した文字起こし結果はセッションの SQLite に保存します。成功後の音声は削除し、推論に失敗した音声は R2 に残します。同じ chunk を同じ区間番号で再送すると保存済み結果を返します。gateway は録音と並行して送信し、各リクエストで結果を受け取ります。Cloudflare Queues は使用しません。最終的な文字起こしと録音メタデータを含む manifest も R2 に保存します。Worker は manifest 用の短命な PUT 署名付き URL を発行し、gateway へ R2 API キーを渡しません。
 
 ## Discord設定
 
@@ -52,4 +54,4 @@ gatewayとWorkerのHTTP契約は [`../../packages/contracts/openapi.yaml`](../..
 
 `main` へのpush後、CIが成功するとWorkerをCloudflareへデプロイします。GitHubリポジトリのActions secretsに `CLOUDFLARE_ACCOUNT_ID` と `CLOUDFLARE_API_TOKEN` を登録してください。API tokenは対象アカウントに限定し、Workers Scriptsの編集権限を付与します。
 
-Workerの実行時secretやR2などのCloudflareリソースは、事前に本番環境へ設定してください。このworkflowはCloudflare Workerをデプロイします。voice-gatewayとASRはホスト環境に依存するため、対象サーバーが決まってから別途デプロイ設定が必要です。
+Workerの実行時secretやR2などのCloudflareリソースは、事前に本番環境へ設定してください。このworkflowはCloudflare Workerをデプロイします。voice-gateway はセルフホストし、[`../../services/voice-gateway/README.md`](../../services/voice-gateway/README.md) の Compose 手順で起動します。この workflow は gateway をデプロイしません。`services/asr` は実験用として残していますが、この構成では使用しません。

@@ -6,7 +6,8 @@
 	"scripts": {
 		"dev": "node --experimental-transform-types src/index.ts",
 		"start": "node --experimental-transform-types src/index.ts",
-		"build": "tsc --noEmit"
+		"build": "tsc --noEmit",
+		"test": "node --experimental-strip-types --test src/clients/*.test.ts"
 	},
 	"dependencies": {
 		"@discordjs/voice": "^0.19.2",

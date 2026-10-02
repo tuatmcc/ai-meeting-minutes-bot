@@ -3,7 +3,8 @@ import Prism from 'prism-media';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StreamAudioEncoder } from '../audio/stream-audio-encoder.ts';
-import { StereoPcmMixer, stereoAudioFormat, type StereoMixerStats } from '../audio/stereo-mixer.ts';
+const stereoAudioFormat = { sampleRate: 48_000, channels: 2, frameSamples: 960 };
+type VoiceReceiveStats = { framesReceived: number; bytesReceived: number };
 
 const FRAME_BYTES = stereoAudioFormat.frameSamples * stereoAudioFormat.channels * 2;
 const FRAME_DURATION_MS = (stereoAudioFormat.frameSamples / stereoAudioFormat.sampleRate) * 1000;
@@ -13,6 +14,8 @@ type ActiveUserStream = {
 	decoder: Prism.opus.Decoder;
 	firstFrameIndex: number;
 	pending: Buffer;
+	userId: string;
+	encoder: StreamAudioEncoder;
 };
 
 export type VoiceRecordingResult = {
@@ -22,39 +25,42 @@ export type VoiceRecordingResult = {
 	endedAt: string;
 	durationMs: number;
 	format: typeof stereoAudioFormat;
-	stats: StereoMixerStats;
+	stats: VoiceReceiveStats;
 };
 
 export class VoiceRecorder {
+	private readonly stats: VoiceReceiveStats = { framesReceived: 0, bytesReceived: 0 };
 	private readonly activeStreams = new Map<string, ActiveUserStream>();
 	private readonly startedAt = Date.now();
 	private acceptingAudio = true;
 	private stopped = false;
+	private failure: Error | undefined;
+	private silenceTimer: NodeJS.Timeout | undefined;
 
 	private constructor(
 		private readonly receiver: VoiceReceiver,
-		private readonly mixer: StereoPcmMixer,
 		private readonly sessionId: string,
 		private readonly outputDir: string,
+		private readonly onAsrAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
+		private readonly onSilenceTick?: (elapsedMs: number) => void,
 	) {}
 
 	static async create(
 		receiver: VoiceReceiver,
 		outputDir: string,
 		sessionId: string,
-		onAsrAudio?: (pcm: Buffer) => void,
+		onAsrAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
+		onSilenceTick?: (elapsedMs: number) => void,
 	): Promise<VoiceRecorder> {
 		const sessionDir = join(outputDir, sessionId);
 		await mkdir(sessionDir, { recursive: true });
-		const encoder = new StreamAudioEncoder();
-		const mixer = StereoPcmMixer.create((frame) => {
-			onAsrAudio?.(encoder.encode48kStereoPcm16le(frame));
-		});
-		return new VoiceRecorder(receiver, mixer, sessionId, sessionDir);
+		return new VoiceRecorder(receiver, sessionId, sessionDir, onAsrAudio, onSilenceTick);
 	}
 
 	start(): void {
 		this.receiver.speaking.on('start', this.handleSpeakingStart);
+		this.silenceTimer = setInterval(() => this.onSilenceTick?.(Date.now() - this.startedAt), 250);
+		this.silenceTimer.unref();
 	}
 
 	private readonly handleSpeakingStart = (userId: string): void => {
@@ -78,6 +84,8 @@ export class VoiceRecorder {
 			decoder,
 			firstFrameIndex: this.elapsedFrameIndex,
 			pending: Buffer.alloc(0),
+			userId,
+			encoder: new StreamAudioEncoder(),
 		};
 
 		this.activeStreams.set(userId, activeStream);
@@ -86,10 +94,12 @@ export class VoiceRecorder {
 		decoder.once('end', () => this.cleanupStream(userId, activeStream));
 		decoder.once('error', (error) => {
 			console.error(`[voice] Opus decode failed for user ${userId}`, error);
+			this.failure ??= error;
 			this.cleanupStream(userId, activeStream);
 		});
 		stream.once('error', (error) => {
 			console.error(`[voice] audio receive failed for user ${userId}`, error);
+			this.failure ??= error;
 			decoder.destroy(error);
 		});
 	};
@@ -102,8 +112,16 @@ export class VoiceRecorder {
 		const pcm = activeStream.pending.length > 0 ? Buffer.concat([activeStream.pending, chunk]) : chunk;
 		const completeLength = pcm.length - (pcm.length % FRAME_BYTES);
 		if (completeLength > 0) {
-			this.mixer.addPcm(activeStream.firstFrameIndex, pcm.subarray(0, completeLength));
-			activeStream.firstFrameIndex += completeLength / FRAME_BYTES;
+			this.stats.framesReceived += completeLength / FRAME_BYTES;
+			this.stats.bytesReceived += completeLength;
+			for (let offset = 0; offset < completeLength; offset += FRAME_BYTES) {
+				this.onAsrAudio?.(
+					activeStream.userId,
+					activeStream.firstFrameIndex * FRAME_DURATION_MS,
+					activeStream.encoder.encode48kStereoPcm16le(pcm.subarray(offset, offset + FRAME_BYTES)),
+				);
+				activeStream.firstFrameIndex += 1;
+			}
 		}
 		activeStream.pending = pcm.subarray(completeLength);
 	}
@@ -120,6 +138,7 @@ export class VoiceRecorder {
 		}
 		this.stopped = true;
 		this.acceptingAudio = false;
+		clearInterval(this.silenceTimer);
 		this.receiver.speaking.off('start', this.handleSpeakingStart);
 
 		for (const activeStream of this.activeStreams.values()) {
@@ -128,7 +147,6 @@ export class VoiceRecorder {
 		}
 		this.activeStreams.clear();
 
-		const stats = this.mixer.close();
 		const endedAt = new Date();
 		const result: VoiceRecordingResult = {
 			sessionId: this.sessionId,
@@ -137,7 +155,7 @@ export class VoiceRecorder {
 			endedAt: endedAt.toISOString(),
 			durationMs: endedAt.getTime() - this.startedAt,
 			format: stereoAudioFormat,
-			stats,
+			stats: this.stats,
 		};
 
 		const manifest = {
@@ -149,6 +167,7 @@ export class VoiceRecorder {
 			stats: result.stats,
 		};
 		await writeFile(join(this.outputDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+		if (this.failure) throw this.failure;
 		return result;
 	}
 

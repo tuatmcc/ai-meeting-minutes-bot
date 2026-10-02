@@ -2,6 +2,13 @@ import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
 import { createMeetingPage, publishMeetingToNotion } from '../notion/meeting-pages.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
+import {
+	isValidAudio,
+	transcribeAudio,
+	type AudioSegmentMetadata,
+	type Transcription,
+	type TranscriptionOperation,
+} from '../ai/transcription.js';
 
 const MAX_NOTION_ATTEMPTS = 5;
 const INITIAL_NOTION_RETRY_MS = 5_000;
@@ -30,6 +37,8 @@ type SessionRow = {
 };
 
 export class VoiceChannelSession extends DurableObject<WorkerEnv> {
+	private readonly transcriptions = new Map<string, Promise<TranscriptionOperation>>();
+
 	constructor(ctx: DurableObjectState, env: WorkerEnv) {
 		super(ctx, env);
 		void ctx.blockConcurrencyWhile(async () => {
@@ -89,7 +98,95 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 				 WHERE notion_page_status = 'not_requested' AND notion_parent_page_id IS NOT NULL`,
 			);
 			ctx.storage.sql.exec('CREATE INDEX IF NOT EXISTS sessions_by_state ON sessions(state)');
+			ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS audio_segments (
+				session_id TEXT NOT NULL,
+				segment_index INTEGER NOT NULL,
+				speaker_id TEXT NOT NULL,
+				start_ms INTEGER NOT NULL,
+				end_ms INTEGER NOT NULL,
+				audio_hash TEXT NOT NULL,
+				transcription TEXT,
+				PRIMARY KEY (session_id, segment_index)
+			)`);
 		});
+	}
+
+	async transcribeSegment(sessionId: string, metadata: AudioSegmentMetadata, audio: ArrayBuffer): Promise<TranscriptionOperation> {
+		const session = this.findBySessionId(sessionId);
+		if (!session) return { ok: false, code: 'SESSION_NOT_FOUND' };
+		if (session.state !== 'recording' && session.state !== 'processing') return { ok: false, code: 'INVALID_SESSION_STATE' };
+		if (!isValidAudio(audio, metadata)) throw new Error('Invalid audio segment');
+		const digest = await crypto.subtle.digest('SHA-256', audio);
+		const current = this.findBySessionId(sessionId);
+		if (!current || (current.state !== 'recording' && current.state !== 'processing')) return { ok: false, code: 'INVALID_SESSION_STATE' };
+		const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+		const existing = this.ctx.storage.sql
+			.exec<{
+				speaker_id: string;
+				start_ms: number;
+				end_ms: number;
+				audio_hash: string;
+				transcription: string | null;
+			}>('SELECT * FROM audio_segments WHERE session_id = ? AND segment_index = ?', sessionId, metadata.index)
+			.toArray()[0];
+		if (
+			existing &&
+			(existing.speaker_id !== metadata.speakerId ||
+				existing.start_ms !== metadata.startMs ||
+				existing.end_ms !== metadata.endMs ||
+				existing.audio_hash !== hash)
+		)
+			return { ok: false, code: 'SEGMENT_CONFLICT' };
+		const key = `guilds/${session.guild_id}/voice-channels/${session.channel_id}/sessions/${sessionId}/chunks/${metadata.index}.wav`;
+		if (existing?.transcription) {
+			await this.deleteSegmentAudio(key);
+			return { ok: true, transcription: JSON.parse(existing.transcription) as Transcription };
+		}
+		const pending = this.transcriptions.get(key);
+		if (pending) return pending;
+		if (!existing)
+			this.ctx.storage.sql.exec(
+				'INSERT INTO audio_segments (session_id, segment_index, speaker_id, start_ms, end_ms, audio_hash) VALUES (?, ?, ?, ?, ?, ?)',
+				sessionId,
+				metadata.index,
+				metadata.speakerId,
+				metadata.startMs,
+				metadata.endMs,
+				hash,
+			);
+		const operation = this.runTranscription(sessionId, metadata.index, key, audio);
+		this.transcriptions.set(key, operation);
+		try {
+			return await operation;
+		} finally {
+			this.transcriptions.delete(key);
+		}
+	}
+
+	private async runTranscription(sessionId: string, index: number, key: string, audio: ArrayBuffer): Promise<TranscriptionOperation> {
+		try {
+			await this.env.RECORDINGS.put(key, audio, { httpMetadata: { contentType: 'audio/wav' } });
+			const transcription = await transcribeAudio(this.env, audio);
+			this.ctx.storage.sql.exec(
+				'UPDATE audio_segments SET transcription = ? WHERE session_id = ? AND segment_index = ?',
+				JSON.stringify(transcription),
+				sessionId,
+				index,
+			);
+			await this.deleteSegmentAudio(key);
+			return { ok: true, transcription };
+		} catch (error) {
+			console.error('[transcription] failed', { sessionId, index, error: error instanceof Error ? error.name : 'unknown error' });
+			return { ok: false, code: 'TRANSCRIPTION_FAILED' };
+		}
+	}
+
+	private async deleteSegmentAudio(key: string): Promise<void> {
+		try {
+			await this.env.RECORDINGS.delete(key);
+		} catch (error) {
+			console.error('[transcription] audio cleanup failed', { key, error: error instanceof Error ? error.name : 'unknown error' });
+		}
 	}
 
 	async getActiveSession(): Promise<VoiceSession | null> {

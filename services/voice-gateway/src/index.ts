@@ -21,7 +21,7 @@ type ActiveRecording = {
 
 const config = loadConfig();
 const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
-const asrApi = new AsrApi(config.asrApiUrl, config.asrApiToken);
+const asrApi = new AsrApi(config.workerApiUrl, config.workerApiToken);
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
@@ -93,12 +93,20 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 		console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
 
-		recorder = await VoiceRecorder.create(connection.receiver, config.recordingsDir, command.sessionId, (pcm) =>
-			asrSegmenter?.addAudio(pcm),
+		recorder = await VoiceRecorder.create(
+			connection.receiver,
+			config.recordingsDir,
+			command.sessionId,
+			(speakerId, startMs, pcm) => asrSegmenter?.addAudio(speakerId, startMs, pcm),
+			(elapsedMs) => asrSegmenter?.flushSilent(elapsedMs),
 		);
-		asrSegmenter = new AsrSegmenter(asrApi, join(config.recordingsDir, command.sessionId));
-		recorder.start();
+		asrSegmenter = new AsrSegmenter(asrApi, join(config.recordingsDir, command.sessionId), {
+			guildId: command.guildId,
+			channelId: command.channelId,
+			sessionId: command.sessionId,
+		});
 		await sessionApi.markRecordingStarted(command.guildId, command.channelId, command.sessionId);
+		recorder.start();
 
 		activeRecordings.set(command.sessionId, { command, connection, recorder, asrSegmenter });
 		console.log(`[recording] started: ${command.sessionId}`);
@@ -108,6 +116,7 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 				console.error('[recording] cleanup after startup failure failed', stopError);
 			});
 		}
+		await asrSegmenter?.finish().catch(() => undefined);
 		connection?.destroy();
 		throw error;
 	}
@@ -133,9 +142,12 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 		const { command, recorder, asrSegmenter, connection } = recording;
 		let failSessionRecorded = false;
 		try {
-			const result = await recorder.stop();
-			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
+			const result = await recorder.stop().catch(async (error: unknown) => {
+				await asrSegmenter.finish().catch(() => undefined);
+				throw error;
+			});
 			const transcription = await asrSegmenter.finish();
+			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
 			const manifestPath = join(result.sessionDir, 'manifest.json');
 			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
 			await writeFile(manifestPath, `${JSON.stringify({ ...manifest, transcription }, null, 2)}\n`, 'utf8');
