@@ -87,6 +87,80 @@ paths:
           $ref: '#/components/responses/Conflict'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/transcribe:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    post:
+      operationId: transcribeSegment
+      description: >-
+        Transcribes a speaker-specific WAV chunk using Workers AI Whisper.
+        Audio is stored in R2 before inference, retained on failure, and deleted after success.
+        Results are stored in the session Durable Object. Replaying the same chunk with
+        the same session-wide segment index returns its saved result; reusing an index
+        with different audio or metadata is a conflict.
+      parameters:
+        - in: header
+          name: X-Segment-Index
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+          description: Unique chunk index across all speakers in this session.
+        - in: header
+          name: X-Speaker-Id
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{17,20}$'
+        - in: header
+          name: X-Start-Ms
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+          description: Chunk start on the session timeline in milliseconds.
+        - in: header
+          name: X-End-Ms
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Chunk end on the session timeline, greater than X-Start-Ms and at most 60000ms later.
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema:
+              type: string
+              format: binary
+              description: Canonical 44-byte-header 16kHz mono PCM16 WAV, nonempty and at most 60 seconds. Sample duration must match X-End-Ms minus X-Start-Ms within 1ms.
+      responses:
+        '200':
+          description: Finalized transcript, including on an idempotent replay.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [model, language, text]
+                properties:
+                  model: { type: string }
+                  language: { type: [string, 'null'] }
+                  text: { type: string }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          description: Transcription failed; audio remains in R2 for inspection or manual recovery.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/summary:
     parameters:
       - $ref: '#/components/parameters/guildId'

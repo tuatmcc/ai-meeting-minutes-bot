@@ -1,90 +1,59 @@
 # AI Meeting Minutes Bot
 
-Discord 上の会議音声を認識し、Workers AI を活用した議事録の作成と Notion への保存を目指すプロジェクトです。Cloudflare Workers 上のアプリケーションと、GPU 環境で動作する音声認識サービスを組み合わせる構成です。
+Discord 上の会議音声を文字起こしし、Workers AI で議事録を作成して Notion に保存するプロジェクトです。Discord Voice を受信する gateway だけをセルフホストし、音声認識・セッション管理・議事録生成は Cloudflare に載せます。GPU やローカル ASR サーバーは不要です。
 
 ## 構成
 
-- `apps/worker`: VC単位のセッション管理APIを提供するCloudflare Workerです。セッション状態はDurable Objects、録音メタデータはR2に保存します。
-- `services/voice-gateway`: Discord Voice への接続と録音を担うNode.jsサービスです。WAVはR2に送らず、manifestのみアップロードします。
-- `services/asr`: Qwen3-ASR-0.6B/vLLMによる音声認識を担うGPU側サービスです。Windows + Docker DesktopのWSL2 GPU環境向けComposeを含みます。
+- `services/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
+- `apps/worker`: Discord コマンド、Durable Objects によるセッション管理、Workers AI Whisper による文字起こし、AI 議事録生成と Notion 保存を提供します。
+- `services/asr`: Qwen3-ASR/vLLM の実験用サービスを残しています。通常の構成では使用しません。
 
-Workerとvoice-gateway間のHTTP契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discordの `/start`・`/stop` コマンドから録音を操作し、`/imakita` で進行中の会議を要約できます。`/start` で指定されたNotionページの子ページを作成し、録音終了後にAI要約と全文字起こしを反映します。保存失敗は `/notion_retry` で再試行できます。
-
-## WindowsのDocker DesktopでGatewayとASRを起動
-
-GatewayコンテナとGPUを使うASRコンテナを、同じWindows PC上のDocker Desktopで別々に起動する手順です。Cloudflare Workerはデプロイ済みで、Discord BotとNotionの設定も完了していることを前提にします。
-
-### 事前準備
-
-- Docker DesktopをWSL2 backendで起動します。
-- NVIDIA GPUを使う場合は、GPU対応のWindows用NVIDIAドライバーをインストールします。DockerからGPUが見えるかPowerShellで確認します。
-
-  ```powershell
-  docker run --rm --gpus=all nvcr.io/nvidia/k8s/cuda-sample:nbody nbody -gpu -benchmark
-  ```
-
-- このリポジトリをWindowsからアクセスできる場所にcloneし、PowerShellでリポジトリのルートへ移動します。
-- ASRモデルは初回起動時にダウンロードされます。モデルのダウンロードとロードには時間がかかることがあります。
-
-### ASRの設定と起動
-
-```powershell
-Copy-Item services/asr/.env.example services/asr/.env
-notepad services/asr/.env
+```text
+セルフホスト Voice gateway
+  Discord 音声受信 → 話者別 WAV chunk
+                           ↓
+Cloudflare Worker → R2 に一時保存 → Workers AI Whisper
+                                           ↓
+                              Durable Object に文字起こし保存
+                                           ↓
+                              Workers AI 議事録生成 → Notion
 ```
 
-`services/asr/.env` の `ASR_API_TOKEN` に十分長いランダムな値を設定します。この値は後でGateway側にも同じものを設定します。`.env` は秘密情報を含むため、Gitにコミットしないでください。
+話者別 buffer は無音区間で区切り、10〜60秒程度で送信します。短い発話も開始から60秒経過した時点か、録音停止時に送信します。Worker への送信は録音と並行して行い、各リクエストで文字起こし結果を受け取ります。Cloudflare Queues は使用しません。
 
-ASRコンテナを起動します。
+Worker と gateway 間の HTTP 契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discord の `/start`・`/stop` で録音を操作し、`/imakita` で確定済みの文字起こしを要約します。`/start` に Notion ページを指定すると子ページを作成し、録音終了後に議事録と全文字起こしを反映します。保存失敗は `/notion_retry` で再試行できます。
 
-```powershell
-Set-Location services/asr
-docker compose up -d --build
-docker compose logs -f asr
+## セルフホスト Gateway の起動
+
+Docker と Docker Compose が使える常時稼働ホストを用意します。Discord Voice に対する外向き UDP 通信と、その応答を受信できるネットワークが必要です。Worker のデプロイと Discord Bot・Notion の設定は [`apps/worker/README.md`](apps/worker/README.md) を参照してください。
+
+リポジトリのルートで環境ファイルを作成します。
+
+```sh
+cp services/voice-gateway/production.env.example services/voice-gateway/production.env
 ```
 
-モデルのロードが完了したら、別のPowerShellで次のコマンドが `{"ready":true}` を返すことを確認します。
-
-```powershell
-docker compose -f services/asr/compose.yaml exec asr python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"
-```
-
-### Gatewayの設定と起動
-
-リポジトリのルートに戻って環境ファイルを作成します。
-
-```powershell
-Set-Location ../..
-Copy-Item services/voice-gateway/production.env.example services/voice-gateway/production.env
-notepad services/voice-gateway/production.env
-```
-
-`services/voice-gateway/production.env` を次のように設定します。
+`production.env` に次を設定します。秘密情報を含むため Git にコミットしないでください。
 
 - `DISCORD_BOT_TOKEN`: Discord Bot token
-- `WORKER_API_URL`: デプロイ済みCloudflare WorkerのURL（`https://...`）
-- `WORKER_API_TOKEN`: Workerの `GATEWAY_API_TOKEN` と同じ値
-- `WORKER_CONTROL_TOKEN`: Workerの `GATEWAY_CONTROL_TOKEN` と同じ値
-- `ASR_API_URL`: `http://host.docker.internal:8000`。コンテナからWindowsホストで公開されたASRポートへ接続します。
-- `ASR_API_TOKEN`: ASR側の `.env` に設定した値と同じ値
+- `WORKER_API_URL`: デプロイ済み Worker の URL
+- `WORKER_API_TOKEN`: Worker の `GATEWAY_API_TOKEN` と同じ値
+- `WORKER_CONTROL_TOKEN`: Worker の `GATEWAY_CONTROL_TOKEN` と同じ値
 
-GatewayのComposeは外部ネットワーク `server_default` と `asr_default` を参照するため、まだ作成されていない場合は一度だけ作成します。
+Compose は既存の外部ネットワーク `server_default` に参加します。ホストに存在しない場合は一度作成します。
 
-```powershell
+```sh
 docker network create server_default
-docker network create asr_default
+docker compose -f services/voice-gateway/compose.yaml up -d --build
+docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
 ```
 
-すでに存在するネットワークについて `already exists` と表示された場合は、そのまま次へ進みます。続けてGatewayを起動します。
+ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。ASR コンテナや GPU の設定は不要です。
 
-```powershell
-Set-Location services/voice-gateway
-docker compose -f compose.yaml up -d --build
-docker compose -f compose.yaml logs -f voice-gateway
+未送信・未確定の WAV とチェックポイントは Docker volume に保存されます。成功後に一時データを削除し、失敗時は調査・再送用に残します。Worker も推論前に音声を R2 に保存し、成功後に削除します。コンテナの再起動だけで録音や失敗セッションを自動復旧する構成ではありません。
+
+停止は次のコマンドで行います。失敗時のデータを保持するため `down -v` は実行しないでください。
+
+```sh
+docker compose -f services/voice-gateway/compose.yaml down
 ```
-
-ログに `[gateway-control] connected` が出ればWorkerとの接続ができています。ASR APIは認証付きHTTPです。Windows Defender Firewallで8000番ポートを許可する場合は、必要なプライベートネットワークに限定し、インターネットへ公開しないでください。
-
-### 停止と再起動
-
-各ディレクトリで `docker compose down` を実行すると、そのサービスを停止できます。例として、Gatewayは `services/voice-gateway` で `docker compose -f compose.yaml down`、ASRは `services/asr` で `docker compose down` を実行します。モデルキャッシュを保持するには `docker compose down -v` は実行しないでください。

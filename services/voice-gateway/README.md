@@ -1,55 +1,47 @@
 # Voice Gateway
 
-Discord Voiceから音声を受信し、30秒単位でQwen3-ASRへ送り文字起こしするサービスです。Discordの`/start`・`/stop`・`/imakita`コマンドはWorkerが受け付け、gatewayはWorkerへ外向きWebSocketで接続して制御を受け取ります。
+Discord Voice を受信するセルフホスト Node.js サービスです。音声認識は Cloudflare Workers AI の `@cf/openai/whisper-large-v3-turbo` を使用するため、GPU やローカル ASR サーバーは不要です。Discord の `/start`・`/stop`・`/imakita` は Worker が受け付け、gateway は外向き WebSocket で制御を受け取ります。
 
 ## 動作
 
-- Discord Voiceへ接続し、受信Opus音声をPCMにデコードして複数ユーザーの48kHz stereo音声をミックス
-- 16kHz mono音声を30秒ごとに切り出し、2秒の重複を含めてASR `/transcribe` へ送信
-- ASRの確定結果を区間ごとに一時チェックポイントへ保存し、会議終了時に結合
-- VCのチャットで実行した`/start`・`/stop`から、そのVCのセッションを開始・終了
-- VCのチャットで`/imakita`を実行すると、ASRが確定した区間までをWorkers AIで短く要約
-- VC単位Durable Objectの状態を更新し、ASR結果を含むmanifestだけをR2へアップロード
-- manifestだけを一時保存し、正常終了後に削除
+- Discord のユーザー ID ごとに Opus 音声を受信・復号し、16kHz mono PCM16 の WAV を生成
+- 話者別 buffer を1.5秒の無音で区切り、10秒以上なら送信。音声が60秒に達するか、発話開始から60秒経過したら短い発話も送信し、停止時は残りを送信
+- WAV と区間情報をローカルに保存してから、録音と並行して Worker のセッション別 `/transcribe` に送信
+- 区間番号・話者 ID・開始終了時刻を付け、失敗時は回数を制限して再試行
+- Worker が返した確定結果をチェックポイントに保存し、会議終了時に manifest を R2 にアップロード
 
-受信Opus音声を48kHz stereo PCM16へデコード・ミックスし、16kHz mono float32へ変換します。ASRは各30秒区間を独立して認識するため、モデルが会議全体の音声を蓄積しません。隣接区間は2秒重ね、認識文字列の一致部分を除いて結合します。区間ごとの結果と開始・終了時刻、結合済み文字起こしはmanifestに保存します。
+話者別の音声をミックスしないため、同時発話でも話者 ID を維持できます。区間番号はセッション全体で一意です。同じ chunk を同じ番号で再送すると Worker は保存済みの結果を返します。今回の構成では Cloudflare Queues を使わず、各 HTTP リクエストで推論結果を受け取ります。
 
 ## 起動
 
-`.env.example`を参考に環境変数を設定し、ASRサービスと同じ`ASR_API_TOKEN`を設定してからリポジトリルートから起動します。
+`.env.example` を参考に環境変数を設定してから、リポジトリルートで起動します。
 
 ```sh
 pnpm --filter @ai-meeting-minutes/voice-gateway dev
 ```
 
 - `DISCORD_BOT_TOKEN`: Discord Bot token
-- `WORKER_API_URL`: WorkerのベースURL。gatewayは同じホストの`/api/v1/gateway-control/connect`へWebSocket接続します。
-- `WORKER_API_TOKEN`: Workerの`GATEWAY_API_TOKEN`と同じ値。セッションAPIの認証に使います。
-- `WORKER_CONTROL_TOKEN`: Workerの`GATEWAY_CONTROL_TOKEN`と同じ値。制御WebSocketの認証に使います。
-- `ASR_API_URL`: ASRサーバーのベースURL
-- `ASR_API_TOKEN`: ASRサービスと共有する十分長いランダムな認証トークン
-- `RECORDINGS_DIR`: manifestの一時保存先。デフォルトは`services/voice-gateway/var/recordings`
+- `WORKER_API_URL`: Worker のベース URL。制御は同じホストの `/api/v1/gateway-control/connect` に WebSocket 接続します。
+- `WORKER_API_TOKEN`: Worker の `GATEWAY_API_TOKEN` と同じ値
+- `WORKER_CONTROL_TOKEN`: Worker の `GATEWAY_CONTROL_TOKEN` と同じ値
+- `RECORDINGS_DIR`: WAV・manifest・チェックポイントの保存先。デフォルトは `services/voice-gateway/var/recordings`
 
-音声はローカルファイルに保存しません。ミックスした音声を30秒区間にしてASRへ送り、未処理待ち行列は最大2区間に制限します。確定した区間テキストは一時チェックポイントへ追記します。終了後、文字起こしと録音メタデータを含むmanifestだけをR2へアップロードします。manifest用のR2 PUT URLはWorkerが発行するため、gatewayにR2 API認証情報を設定する必要はありません。gatewayはDiscord Botの`ViewChannel`と`Connect`権限を必要とします。Botは音声を送信しないため`Speak`権限は不要です。
+Worker は音声を R2 に一時保存してから Workers AI に渡します。文字起こしが成功すると結果をセッションの SQLite に保存し、R2 の音声を削除します。推論に失敗した音声は R2 に残します。gateway も未確定の WAV をローカルに残し、成功した区間は削除します。再試行を使い切った場合はセッションを失敗として扱い、調査・再送用の一時データを残します。再起動による録音の自動再開や失敗セッションの自動復旧は行いません。
 
-manifestは次のようにsession IDごとに一時保存され、成功後にディレクトリごと削除されます。失敗時は調査用に残ります。
+manifest の R2 PUT URL は Worker が発行するため、gateway に R2 API 認証情報は不要です。Bot には対象 Voice Channel の `ViewChannel` と `Connect` 権限が必要です。音声は送信しないため `Speak` 権限は不要です。
 
-```text
-services/voice-gateway/var/recordings/<session-id>/
-├── manifest.json
-└── transcription-segments.jsonl
-```
+## 本番 Docker
 
-`transcription-segments.jsonl`にはASRが確定した区間ごとの結果が追記されます（区間処理が始まると作成）。正常終了後はmanifestのアップロードとともに一時ディレクトリを削除します。ASRの処理が音声入力に追いつかず、待ち行列が上限を超えた場合はセッションを失敗として扱います。
+GPU のない既存ホストでも動作します。Docker のネットワークから Discord Voice への外向き UDP 通信と応答の受信、および Worker への HTTPS/WebSocket 通信を許可してください。gateway の制御用ポートを外部公開する必要はありません。
 
-## 本番Docker
-
-`production.env.example`を`production.env`にコピーし、Discord Bot token、デプロイ済みWorkerのURL、Workerと共有する2つのtokenを設定します。R2の認証情報はWorker側だけに設定し、Gatewayには渡しません。
-
-このCompose定義は外部Dockerネットワーク`server_default`と`asr_default`に参加します。ASRを同じDockerホスト上で`services/asr/compose.yaml`から起動する場合、`ASR_API_URL`には`http://asr:8000`を設定します。ASRサービスを別ホストで起動する場合は、`ASR_API_URL`をそのホストのプライベートネットワーク上のアドレスに変更してください。どちらの場合もASR側と同じ`ASR_API_TOKEN`を使い、別ホスト構成では8000番ポートへプライベートネットワークまたはVPNから接続できるようにします。
+`production.env.example` を `production.env` にコピーし、Discord Bot token、デプロイ済み Worker の URL、Worker と共有する2つの token を設定します。
 
 ```sh
 cp production.env.example production.env
 docker compose -f compose.yaml up -d --build
 docker compose -f compose.yaml logs -f voice-gateway
 ```
+
+Compose は既存の外部ネットワーク `server_default` に参加します。存在しない場合は `docker network create server_default` で作成してください。ローカル ASR 用のネットワークは不要です。
+
+録音データのディレクトリは named volume `recordings` に保存します。コンテナを作り直しても未確定の WAV とチェックポイントを保持します。停止は `docker compose -f compose.yaml down` を使用し、失敗時のデータが必要な間は `down -v` で volume を削除しないでください。
