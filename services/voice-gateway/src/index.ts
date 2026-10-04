@@ -147,6 +147,7 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 				throw error;
 			});
 			const transcription = await asrSegmenter.finish();
+			console.log(`[recording] captured ${result.stats.framesReceived} frames (${result.durationMs}ms) for ${command.sessionId}`);
 			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
 			const manifestPath = join(result.sessionDir, 'manifest.json');
 			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;

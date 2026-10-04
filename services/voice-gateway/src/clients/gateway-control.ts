@@ -127,9 +127,11 @@ export class GatewayControlClient {
 								if (commandFailed) {
 									return;
 								}
+								console.log(`[gateway-control] command received: ${message.command.action} ${message.command.sessionId}`);
 								await this.onCommand(message.command);
 								if (socket.readyState === WebSocket.OPEN) {
 									socket.send(JSON.stringify({ type: 'ack', commandId: message.command.commandId }));
+									console.log(`[gateway-control] command acknowledged: ${message.command.action} ${message.command.sessionId}`);
 								}
 							})
 							.catch((error: unknown) => {

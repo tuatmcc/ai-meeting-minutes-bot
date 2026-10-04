@@ -79,16 +79,21 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			.exec<CommandRow>("SELECT * FROM commands WHERE state = 'in_flight' ORDER BY created_at, rowid LIMIT 1")
 			.toArray()[0];
 		if (inFlight?.command_id !== frame.commandId) {
+			console.error('[gateway-control] unexpected command acknowledgement', {
+				commandId: frame.commandId,
+				inFlightCommandId: inFlight?.command_id ?? null,
+			});
 			socket.close(1008, 'Unexpected command acknowledgement');
 			return;
 		}
 
 		this.ctx.storage.sql.exec("DELETE FROM commands WHERE command_id = ? AND state = 'in_flight'", frame.commandId);
+		console.log('[gateway-control] command acknowledged', { commandId: frame.commandId });
 		this.dispatchNext();
 	}
 
-	webSocketClose(socket: WebSocket): void {
-		socket.close();
+	webSocketClose(_socket: WebSocket, code: number, reason: string, wasClean: boolean): void {
+		console.warn('[gateway-control] socket closed', { code, reason, wasClean });
 	}
 
 	webSocketError(socket: WebSocket): void {

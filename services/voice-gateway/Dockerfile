@@ -11,4 +11,6 @@ RUN pnpm install --filter @ai-meeting-minutes/voice-gateway... --frozen-lockfile
 
 USER node
 
-CMD ["pnpm", "--filter", "@ai-meeting-minutes/voice-gateway", "start"]
+WORKDIR /app/services/voice-gateway
+
+CMD ["node", "--experimental-transform-types", "src/index.ts"]
