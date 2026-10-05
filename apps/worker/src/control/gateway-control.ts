@@ -93,6 +93,10 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			await this.dispatchNext(true);
 			return;
 		}
+		if (frame?.type === 'heartbeat' && typeof frame.heartbeatId === 'string' && frame.heartbeatId.length <= 32) {
+			socket.send(JSON.stringify({ type: 'heartbeat_ack', heartbeatId: frame.heartbeatId }));
+			return;
+		}
 
 		if (frame?.type !== 'ack' || typeof frame.commandId !== 'string') {
 			socket.close(1008, 'Invalid frame');

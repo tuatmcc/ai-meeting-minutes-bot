@@ -8,11 +8,16 @@ type BaseGatewayCommand = {
 export type GatewayCommand = BaseGatewayCommand &
 	({ action: 'start' | 'stop' } | { action: 'imakita'; applicationId: string; interactionToken: string });
 
-type ControlMessage = { type: 'authenticated' } | { type: 'command'; command: GatewayCommand };
+type ControlMessage =
+	| { type: 'authenticated' }
+	| { type: 'heartbeat_ack'; heartbeatId: string }
+	| { type: 'command'; command: GatewayCommand };
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const AUTHENTICATION_TIMEOUT_MS = 10_000;
+const HEARTBEAT_INTERVAL_MS = 10_000;
+const HEARTBEAT_TIMEOUT_MS = 30_000;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -69,6 +74,9 @@ export class GatewayControlClient {
 			let authenticated = false;
 			let settled = false;
 			let commandFailed = false;
+			let heartbeatId = 0;
+			let lastHeartbeatAckAt = Date.now();
+			let heartbeatTimer: NodeJS.Timeout | undefined;
 			const authTimeout = setTimeout(() => {
 				finish(new Error('Timed out waiting for gateway control authentication'));
 				socket.close(1008, 'authentication timed out');
@@ -80,6 +88,10 @@ export class GatewayControlClient {
 				}
 				settled = true;
 				clearTimeout(authTimeout);
+				if (heartbeatTimer) {
+					clearInterval(heartbeatTimer);
+					heartbeatTimer = undefined;
+				}
 				if (this.socket === socket) {
 					this.socket = undefined;
 				}
@@ -107,7 +119,30 @@ export class GatewayControlClient {
 							}
 							authenticated = true;
 							clearTimeout(authTimeout);
+							heartbeatTimer = setInterval(() => {
+								if (Date.now() - lastHeartbeatAckAt >= HEARTBEAT_TIMEOUT_MS) {
+									console.warn('[gateway-control] heartbeat timed out; reconnecting');
+									finish();
+									socket.close(1011, 'Gateway control heartbeat timed out');
+									return;
+								}
+								if (socket.readyState === WebSocket.OPEN) {
+									try {
+										socket.send(JSON.stringify({ type: 'heartbeat', heartbeatId: String(++heartbeatId) }));
+									} catch {
+										finish();
+										socket.close(1011, 'Unable to send gateway control heartbeat');
+									}
+								}
+							}, HEARTBEAT_INTERVAL_MS);
 							console.log('[gateway-control] connected');
+							return;
+						}
+
+						if (message.type === 'heartbeat_ack') {
+							if (message.heartbeatId === String(heartbeatId)) {
+								lastHeartbeatAckAt = Date.now();
+							}
 							return;
 						}
 
@@ -197,6 +232,9 @@ async function readMessage(data: unknown): Promise<ControlMessage> {
 	}
 	if (value.type === 'authenticated') {
 		return { type: 'authenticated' };
+	}
+	if (value.type === 'heartbeat_ack' && typeof value.heartbeatId === 'string') {
+		return { type: 'heartbeat_ack', heartbeatId: value.heartbeatId };
 	}
 	if (value.type === 'command' && isGatewayCommand(value.command)) {
 		return { type: 'command', command: value.command };
