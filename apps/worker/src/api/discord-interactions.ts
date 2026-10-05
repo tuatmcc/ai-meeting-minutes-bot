@@ -140,9 +140,6 @@ async function executeCommand(
 ): Promise<string | null> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'start') {
-		if (command.notionParentPageId && !env.NOTION_API_TOKEN) {
-			return 'Notion連携がWorkerに設定されていません。';
-		}
 		const result = await session.startSession(command.guildId, command.channelId, interactionId, command.notionParentPageId);
 		if (!result.ok) {
 			return result.code === 'SESSION_ALREADY_ACTIVE'
@@ -153,6 +150,13 @@ async function executeCommand(
 		if (result.session.state !== 'starting') {
 			return sessionStateMessage(result.session, command.channelId);
 		}
+		const queued = await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
+			commandId: interactionId,
+			action: 'start',
+			guildId: command.guildId,
+			channelId: command.channelId,
+			sessionId: result.session.sessionId,
+		});
 
 		let notionPageUrl = result.session.notionPageUrl;
 		let notionPageCreationFailed = false;
@@ -187,13 +191,6 @@ async function executeCommand(
 			}
 		}
 
-		const queued = await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
-			commandId: interactionId,
-			action: 'start',
-			guildId: command.guildId,
-			channelId: command.channelId,
-			sessionId: result.session.sessionId,
-		});
 		const notionMessage = notionPageUrl
 			? ` Notionページ: <${notionPageUrl}>（録音終了後に内容を更新します）`
 			: command.notionParentPageId
