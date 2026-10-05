@@ -1,0 +1,42 @@
+diff --git a/dist/index.js b/dist/index.js
+index 63c6dfbaeb145f4ec332784ce5a80bb534fb8905..75e209e231b94568aec258e01c83c18ffd86c95b 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -953,11 +953,15 @@ var DAVESession = class extends import_node_events2.EventEmitter {
+       this.consecutiveFailures = 0;
+       return buffer;
+     } catch (error) {
++      if (error instanceof Error && error.message.includes("UnencryptedWhenPassthroughDisabled")) {
++        this.emit("debug", "Passing through an unencrypted voice packet rejected by the DAVE session");
++        return packet;
++      }
+       if (!this.reinitializing && this.pendingTransitions.size === 0) {
+         this.consecutiveFailures++;
+         this.emit("debug", `Failed to decrypt a packet (${this.consecutiveFailures} consecutive fails)`);
+         if (this.consecutiveFailures > this.failureTolerance) {
+-          if (this.lastTransitionId) this.recoverFromInvalidTransition(this.lastTransitionId);
++          if (this.lastTransitionId !== undefined) this.recoverFromInvalidTransition(this.lastTransitionId);
+           else throw error;
+         }
+       } else if (this.reinitializing) {
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 4a5678cf6efbd76a00efaa0c1218aa6fb8cccffe..df2b2f0af4d8309e53debd53bc032fa92eaf0716 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -893,11 +893,15 @@ var DAVESession = class extends EventEmitter2 {
+       this.consecutiveFailures = 0;
+       return buffer;
+     } catch (error) {
++      if (error instanceof Error && error.message.includes("UnencryptedWhenPassthroughDisabled")) {
++        this.emit("debug", "Passing through an unencrypted voice packet rejected by the DAVE session");
++        return packet;
++      }
+       if (!this.reinitializing && this.pendingTransitions.size === 0) {
+         this.consecutiveFailures++;
+         this.emit("debug", `Failed to decrypt a packet (${this.consecutiveFailures} consecutive fails)`);
+         if (this.consecutiveFailures > this.failureTolerance) {
+-          if (this.lastTransitionId) this.recoverFromInvalidTransition(this.lastTransitionId);
++          if (this.lastTransitionId !== undefined) this.recoverFromInvalidTransition(this.lastTransitionId);
+           else throw error;
+         }
+       } else if (this.reinitializing) {
