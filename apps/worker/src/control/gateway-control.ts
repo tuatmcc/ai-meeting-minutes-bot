@@ -13,6 +13,7 @@ type GatewayAttachment = {
 };
 
 const CONTROL_PATH = '/api/v1/gateway-control/connect';
+const COMMAND_ACK_TIMEOUT_MS = 60_000;
 
 export class GatewayControl extends DurableObject<WorkerEnv> {
 	constructor(ctx: DurableObjectState, env: WorkerEnv) {
@@ -36,8 +37,21 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			JSON.stringify(command),
 			new Date().toISOString(),
 		);
-		this.dispatchNext();
+		await this.dispatchNext();
 		return { gatewayConnected: this.authenticatedGatewaySocket() !== null };
+	}
+
+	async alarm(): Promise<void> {
+		const inFlight = this.ctx.storage.sql
+			.exec<CommandRow>("SELECT * FROM commands WHERE state = 'in_flight' ORDER BY created_at, rowid LIMIT 1")
+			.toArray()[0];
+		if (!inFlight) {
+			return;
+		}
+
+		console.warn('[gateway-control] command acknowledgement timed out', { commandId: inFlight.command_id });
+		this.authenticatedGatewaySocket()?.close(1011, 'Command acknowledgement timed out');
+		await this.ctx.storage.setAlarm(Date.now() + COMMAND_ACK_TIMEOUT_MS);
 	}
 
 	async fetch(request: Request): Promise<Response> {
@@ -66,8 +80,17 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				return;
 			}
 			socket.serializeAttachment({ authenticated: true } satisfies GatewayAttachment);
+			for (const existingSocket of this.ctx.getWebSockets('gateway')) {
+				if (existingSocket === socket) {
+					continue;
+				}
+				const existingAttachment = existingSocket.deserializeAttachment() as GatewayAttachment | null;
+				if (existingAttachment?.authenticated) {
+					existingSocket.close(1012, 'Replaced by a new gateway connection');
+				}
+			}
 			socket.send(JSON.stringify({ type: 'authenticated' }));
-			this.dispatchNext(true);
+			await this.dispatchNext(true);
 			return;
 		}
 
@@ -89,7 +112,7 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 
 		this.ctx.storage.sql.exec("DELETE FROM commands WHERE command_id = ? AND state = 'in_flight'", frame.commandId);
 		console.log('[gateway-control] command acknowledged', { commandId: frame.commandId });
-		this.dispatchNext();
+		await this.dispatchNext();
 	}
 
 	webSocketClose(_socket: WebSocket, code: number, reason: string, wasClean: boolean): void {
@@ -100,7 +123,7 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 		socket.close(1011, 'Gateway connection failed');
 	}
 
-	private dispatchNext(resendInFlight = false): void {
+	private async dispatchNext(resendInFlight = false): Promise<void> {
 		const socket = this.authenticatedGatewaySocket();
 		if (!socket) {
 			return;
@@ -114,6 +137,7 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				.exec<CommandRow>("SELECT * FROM commands WHERE state = 'pending' ORDER BY created_at, rowid LIMIT 1")
 				.toArray()[0];
 			if (!row) {
+				await this.ctx.storage.deleteAlarm();
 				return;
 			}
 			this.ctx.storage.sql.exec("UPDATE commands SET state = 'in_flight' WHERE command_id = ?", row.command_id);
@@ -123,6 +147,8 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 
 		try {
 			socket.send(JSON.stringify({ type: 'command', command: JSON.parse(row.payload) }));
+			console.log('[gateway-control] command dispatched', { commandId: row.command_id });
+			await this.ctx.storage.setAlarm(Date.now() + COMMAND_ACK_TIMEOUT_MS);
 		} catch {
 			this.ctx.storage.sql.exec("UPDATE commands SET state = 'pending' WHERE command_id = ?", row.command_id);
 			socket.close(1011, 'Unable to deliver command');
@@ -131,6 +157,9 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 
 	private authenticatedGatewaySocket(): WebSocket | null {
 		for (const socket of this.ctx.getWebSockets('gateway')) {
+			if (socket.readyState !== WebSocket.OPEN) {
+				continue;
+			}
 			const attachment = socket.deserializeAttachment() as GatewayAttachment | null;
 			if (attachment?.authenticated) {
 				return socket;

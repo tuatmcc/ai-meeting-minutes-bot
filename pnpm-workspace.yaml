@@ -5,3 +5,6 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
+
+patchedDependencies:
+  '@discordjs/voice@0.19.2': patches/@discordjs__voice@0.19.2.patch
