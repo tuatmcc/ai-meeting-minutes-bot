@@ -21,6 +21,63 @@ export type CreatedMeetingPage = {
 	pageUrl: string | null;
 };
 
+export type NotionPageChoice = {
+	pageId: string;
+	pageUrl: string | null;
+	title: string;
+};
+
+export async function searchNotionPages(env: WorkerEnv, query: string): Promise<NotionPageChoice[]> {
+	if (!env.NOTION_API_TOKEN) return [];
+	const response = await fetch('https://api.notion.com/v1/search', {
+		method: 'POST',
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+		body: JSON.stringify({
+			query,
+			page_size: 25,
+			sort: { direction: 'descending', timestamp: 'last_edited_time' },
+			filter: { property: 'object', value: 'page' },
+		}),
+	});
+	const body = await readNotionResponse(response);
+	if (!Array.isArray(body.results)) return [];
+	return body.results.flatMap((result) => parseNotionPageChoice(result) ?? []);
+}
+
+export async function getNotionPage(env: WorkerEnv, pageId: string): Promise<NotionPageChoice | null> {
+	if (!env.NOTION_API_TOKEN) return null;
+	const response = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(pageId)}`, {
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+	});
+	const body = await readNotionResponse(response);
+	return parseNotionPageChoice(body);
+}
+
+function parseNotionPageChoice(value: unknown): NotionPageChoice | null {
+	if (typeof value !== 'object' || value === null || !('id' in value) || typeof value.id !== 'string') return null;
+	const properties =
+		'properties' in value && typeof value.properties === 'object' && value.properties !== null ? Object.values(value.properties) : [];
+	const titleProperty = properties.find(
+		(property) => typeof property === 'object' && property !== null && 'type' in property && property.type === 'title',
+	);
+	const titleItems: unknown[] =
+		titleProperty && typeof titleProperty === 'object' && 'title' in titleProperty && Array.isArray(titleProperty.title)
+			? titleProperty.title
+			: [];
+	const title = titleItems
+		.map((item) =>
+			typeof item === 'object' && item !== null && 'plain_text' in item && typeof item.plain_text === 'string' ? item.plain_text : '',
+		)
+		.join('')
+		.trim();
+	if (!title) return null;
+	return {
+		pageId: value.id,
+		pageUrl: 'url' in value && typeof value.url === 'string' ? value.url : null,
+		title,
+	};
+}
+
 export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): Promise<CreatedMeetingPage> {
 	if (!env.NOTION_API_TOKEN || !session.notionParentPageId) {
 		throw new Error('Notion API token and parent page ID are required');

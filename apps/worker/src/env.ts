@@ -4,7 +4,6 @@ export type WorkerEnv = Env & {
 	DISCORD_APPLICATION_ID: string;
 	DISCORD_APPLICATION_PUBLIC_KEY: string;
 	NOTION_API_TOKEN?: string;
-	DEFAULT_NOTION_PARENT_PAGE_ID?: string;
 	GATEWAY_CONTROL: DurableObjectNamespace<import('./control/gateway-control.js').GatewayControl>;
 	R2_ACCOUNT_ID: string;
 	R2_ACCESS_KEY_ID: string;
