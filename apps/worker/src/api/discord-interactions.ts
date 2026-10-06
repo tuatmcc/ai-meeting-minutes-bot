@@ -1,6 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
-import { createMeetingPage, getNotionPage, searchNotionPages } from '../notion/meeting-pages.js';
+import { createMeetingPage, getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
@@ -26,11 +26,11 @@ type DiscordInteraction = {
 };
 
 type ParsedCommand = {
-	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'notion_default';
+	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
-	notionDefaultAction: 'set' | 'clear' | 'show' | null;
+	notionDatabaseId: string | null;
 	canManageGuild: boolean;
 };
 
@@ -92,7 +92,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、`/notion_retry`、または `/notion_default` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、`/notion_retry`、または `/link_notion_db` を実行してください。',
 		);
 	}
 
@@ -139,28 +139,18 @@ async function executeCommand(
 	env: WorkerEnv,
 ): Promise<string | null> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
-	if (command.action === 'notion_default') {
-		if (!command.canManageGuild) return '既定の保存先を変更するにはサーバー管理権限が必要です。';
-		if (command.notionDefaultAction === 'clear') {
-			await session.setNotionDefault(null);
-			return 'この VC の既定Notion保存先を解除しました。';
-		}
-		if (command.notionDefaultAction !== 'set' || !command.notionParentPageId) {
-			const current = await session.getNotionDefault();
-			return current?.pageUrl
-				? `この VC の既定保存先: [${current.title}](<${current.pageUrl}>)。候補を選ぶと変更できます。`
-				: '既定保存先は未設定です。候補からNotionページを選んでください。';
-		}
-		const page = await getNotionPage(env, command.notionParentPageId);
-		if (!page) return 'Notionページを取得できませんでした。Botにページを共有してから、もう一度選んでください。';
-		await session.setNotionDefault(page);
-		return page.pageUrl
-			? `この VC の既定保存先を [${page.title}](<${page.pageUrl}>) に設定しました。`
-			: `この VC の既定保存先を「${page.title}」に設定しました。`;
+	if (command.action === 'link_notion_db') {
+		if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
+		if (!command.notionDatabaseId) return 'Notion DBを候補から選択してください。';
+		const database = await getNotionDataSource(env, command.notionDatabaseId);
+		if (!database) return 'Notion DBを取得できませんでした。BotにDBを共有してから、もう一度選んでください。';
+		await session.setNotionDatabase(database);
+		return `この VC の議事録DBを「${database.title}」に設定しました。`;
 	}
 	if (command.action === 'start') {
-		const notionParentPageId = command.notionParentPageId ?? (await session.getNotionDefault())?.pageId ?? null;
-		if (!notionParentPageId) return 'この VC の既定保存先が未設定です。`/notion_default` からNotionページを選んでください。';
+		const notionParentPageId = command.notionParentPageId;
+		if (!notionParentPageId) return '議事録DBの項目を選択してください。';
+		if (!(await session.getNotionDatabase())) return 'この VC の議事録DBが未設定です。管理者が `/link_notion_db` で設定してください。';
 		const result = await session.startSession(command.guildId, command.channelId, interactionId, notionParentPageId);
 		if (!result.ok) {
 			return result.code === 'SESSION_ALREADY_ACTIVE'
@@ -214,11 +204,9 @@ async function executeCommand(
 
 		const notionMessage = notionPageUrl
 			? ` Notionページ: <${notionPageUrl}>（録音終了後に内容を更新します）`
-			: notionParentPageId
-				? notionPageCreationFailed
-					? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
-					: ' Notionページは録音終了後に更新します。'
-				: '';
+			: notionPageCreationFailed
+				? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
+				: ' Notionページは録音終了後に更新します。';
 		return queued.gatewayConnected
 			? `録音の開始要求を送信しました: <#${command.channelId}>${notionMessage}`
 			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
@@ -290,7 +278,7 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEnv): Promise<Response> {
 	const data = interaction.data;
 	const option = data?.options?.find((item) => item.focused);
-	const isDefaultCommand = data?.name === 'notion_default';
+	const isDatabaseCommand = data?.name === 'link_notion_db';
 	const permissions = interaction.member?.permissions;
 	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
 	if (
@@ -298,19 +286,26 @@ async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEn
 		!SNOWFLAKE_PATTERN.test(interaction.guild_id) ||
 		!interaction.channel_id ||
 		!SNOWFLAKE_PATTERN.test(interaction.channel_id) ||
-		(data?.name !== 'start' && !isDefaultCommand) ||
-		(isDefaultCommand && !canManageGuild) ||
+		(data?.name !== 'start' && !isDatabaseCommand) ||
+		(isDatabaseCommand && !canManageGuild) ||
 		!option ||
-		option.name !== (isDefaultCommand ? 'page' : 'notion_page')
+		option.name !== (isDatabaseCommand ? 'database' : 'meeting')
 	) {
 		return Response.json({ type: 8, data: { choices: [] } });
 	}
 
 	const query = typeof option.value === 'string' ? option.value.slice(0, 100) : '';
 	try {
-		const pages = await searchNotionPages(env, query);
-		const choices = pages.slice(0, isDefaultCommand ? 24 : 25).map((page) => ({ name: page.title.slice(0, 100), value: page.pageId }));
-		if (isDefaultCommand) choices.push({ name: '既定の保存先を解除', value: '__clear_default__' });
+		let choices: Array<{ name: string; value: string }>;
+		if (isDatabaseCommand) {
+			choices = (await searchNotionDataSources(env, query)).map((database) => ({ name: database.title.slice(0, 100), value: database.id }));
+		} else {
+			const session = env.VOICE_CHANNEL_SESSION.getByName(`${interaction.guild_id}:${interaction.channel_id}`);
+			const database = await session.getNotionDatabase();
+			choices = database
+				? (await queryNotionDataSource(env, database, query)).map((page) => ({ name: page.title.slice(0, 100), value: page.pageId }))
+				: [];
+		}
 		return Response.json({ type: 8, data: { choices } });
 	} catch (error) {
 		console.error('[notion] page search failed', error instanceof Error ? error.name : 'unknown error');
@@ -332,21 +327,29 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'start' && name !== 'stop' && name !== 'imakita' && name !== 'notion_retry' && name !== 'notion_default')
+		(name !== 'start' && name !== 'stop' && name !== 'imakita' && name !== 'notion_retry' && name !== 'link_notion_db')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}
 
-	const optionName = name === 'start' ? 'notion_page' : name === 'notion_default' ? 'page' : null;
+	const optionName = name === 'start' ? 'meeting' : name === 'link_notion_db' ? 'database' : null;
 	const option = optionName ? interaction.data?.options?.find((item) => item.name === optionName) : undefined;
 	const selectedValue = option && typeof option.value === 'string' ? option.value : null;
-	const notionParentPageId = selectedValue && selectedValue !== '__clear_default__' ? normalizeNotionPageId(selectedValue) : null;
-	if (selectedValue && selectedValue !== '__clear_default__' && !notionParentPageId) return { ok: false, reason: 'unsupported' };
-	const notionDefaultAction =
-		name !== 'notion_default' ? null : selectedValue === '__clear_default__' ? 'clear' : notionParentPageId ? 'set' : 'show';
+	const normalizedId = normalizeNotionPageId(selectedValue ?? undefined);
+	if (selectedValue && !normalizedId) return { ok: false, reason: 'unsupported' };
 	const permissions = interaction.member?.permissions;
 	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
-	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId, notionDefaultAction, canManageGuild } };
+	return {
+		ok: true,
+		command: {
+			action: name,
+			guildId,
+			channelId,
+			notionParentPageId: name === 'start' ? normalizedId : null,
+			notionDatabaseId: name === 'link_notion_db' ? normalizedId : null,
+			canManageGuild,
+		},
+	};
 }
 
 function normalizeNotionPageId(rawId?: string): string | null {

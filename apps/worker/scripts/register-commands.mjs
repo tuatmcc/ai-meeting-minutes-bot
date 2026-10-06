@@ -17,10 +17,10 @@ const commands = [
 		type: 1,
 		options: [
 			{
-				name: 'notion_page',
-				description: '今回の議事録の保存先（省略時はVCの既定ページ）',
+				name: 'meeting',
+				description: '今回の議事録を選択',
 				type: 3,
-				required: false,
+				required: true,
 				autocomplete: true,
 			},
 		],
@@ -29,16 +29,16 @@ const commands = [
 	{ name: 'imakita', description: '会議の現在地を短く要約します', type: 1 },
 	{ name: 'notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
 	{
-		name: 'notion_default',
-		description: 'このボイスチャンネルの既定の議事録保存先を設定します',
+		name: 'link_notion_db',
+		description: 'このボイスチャンネルの議事録DBを設定します',
 		type: 1,
 		default_member_permissions: '32',
 		options: [
 			{
-				name: 'page',
-				description: 'Notionページを検索して選択（解除もできます）',
+				name: 'database',
+				description: 'Notion DBを検索して選択',
 				type: 3,
-				required: false,
+				required: true,
 				autocomplete: true,
 			},
 		],
