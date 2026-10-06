@@ -298,7 +298,10 @@ async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEn
 	try {
 		let choices: Array<{ name: string; value: string }>;
 		if (isDatabaseCommand) {
-			choices = (await searchNotionDataSources(env, query)).map((database) => ({ name: database.title.slice(0, 100), value: database.id }));
+			choices = (await searchNotionDataSources(env, query)).map((database) => ({
+				name: formatNotionDataSourceLabel(database.parentTitle, database.title),
+				value: database.id,
+			}));
 		} else {
 			const session = env.VOICE_CHANNEL_SESSION.getByName(`${interaction.guild_id}:${interaction.channel_id}`);
 			const database = await session.getNotionDatabase();
@@ -311,6 +314,14 @@ async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEn
 		console.error('[notion] page search failed', error instanceof Error ? error.name : 'unknown error');
 		return Response.json({ type: 8, data: { choices: [] } });
 	}
+}
+
+function formatNotionDataSourceLabel(parentTitle: string | null, title: string): string {
+	const databaseTitle = title.slice(0, 100);
+	if (!parentTitle) return databaseTitle;
+	const parentPrefixLength = 100 - databaseTitle.length - 3;
+	if (parentPrefixLength < 1) return databaseTitle;
+	return `${parentTitle.slice(0, parentPrefixLength)} / ${databaseTitle}`;
 }
 
 function parseCommand(interaction: DiscordInteraction): CommandParseResult {
