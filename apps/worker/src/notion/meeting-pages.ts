@@ -27,7 +27,13 @@ export type NotionPageChoice = {
 	title: string;
 };
 
-export async function searchNotionPages(env: WorkerEnv, query: string): Promise<NotionPageChoice[]> {
+export type NotionDataSource = {
+	dataSourceId: string;
+	title: string;
+	titleProperty: string;
+};
+
+export async function searchNotionDataSources(env: WorkerEnv, query: string): Promise<Array<{ id: string; title: string }>> {
 	if (!env.NOTION_API_TOKEN) return [];
 	const response = await fetch('https://api.notion.com/v1/search', {
 		method: 'POST',
@@ -36,21 +42,48 @@ export async function searchNotionPages(env: WorkerEnv, query: string): Promise<
 			query,
 			page_size: 25,
 			sort: { direction: 'descending', timestamp: 'last_edited_time' },
-			filter: { property: 'object', value: 'page' },
+			filter: { property: 'object', value: 'data_source' },
+		}),
+	});
+	const body = await readNotionResponse(response);
+	if (!Array.isArray(body.results)) return [];
+	return body.results.flatMap((result): Array<{ id: string; title: string }> => {
+		if (typeof result !== 'object' || result === null || !('id' in result) || typeof result.id !== 'string') return [];
+		const title = readRichTextTitle('title' in result ? result.title : undefined);
+		return title ? [{ id: result.id, title }] : [];
+	});
+}
+
+export async function getNotionDataSource(env: WorkerEnv, dataSourceId: string): Promise<NotionDataSource | null> {
+	if (!env.NOTION_API_TOKEN) return null;
+	const response = await fetch(`https://api.notion.com/v1/data_sources/${encodeURIComponent(dataSourceId)}`, {
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+	});
+	const body = await readNotionResponse(response);
+	if (typeof body.id !== 'string' || !('properties' in body) || typeof body.properties !== 'object' || body.properties === null)
+		return null;
+	const titleProperty = Object.entries(body.properties).find(
+		([, property]) => typeof property === 'object' && property !== null && 'type' in property && property.type === 'title',
+	);
+	const title = readRichTextTitle('title' in body ? body.title : undefined);
+	return title && titleProperty ? { dataSourceId: body.id, title, titleProperty: titleProperty[0] } : null;
+}
+
+export async function queryNotionDataSource(env: WorkerEnv, database: NotionDataSource, query: string): Promise<NotionPageChoice[]> {
+	if (!env.NOTION_API_TOKEN) return [];
+	const titleFilter = query ? { property: database.titleProperty, title: { contains: query } } : undefined;
+	const response = await fetch(`https://api.notion.com/v1/data_sources/${encodeURIComponent(database.dataSourceId)}/query`, {
+		method: 'POST',
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+		body: JSON.stringify({
+			page_size: 25,
+			sorts: [{ timestamp: 'last_edited_time', direction: 'descending' }],
+			...(titleFilter ? { filter: titleFilter } : {}),
 		}),
 	});
 	const body = await readNotionResponse(response);
 	if (!Array.isArray(body.results)) return [];
 	return body.results.flatMap((result) => parseNotionPageChoice(result) ?? []);
-}
-
-export async function getNotionPage(env: WorkerEnv, pageId: string): Promise<NotionPageChoice | null> {
-	if (!env.NOTION_API_TOKEN) return null;
-	const response = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(pageId)}`, {
-		headers: notionHeaders(env.NOTION_API_TOKEN),
-	});
-	const body = await readNotionResponse(response);
-	return parseNotionPageChoice(body);
 }
 
 function parseNotionPageChoice(value: unknown): NotionPageChoice | null {
@@ -76,6 +109,17 @@ function parseNotionPageChoice(value: unknown): NotionPageChoice | null {
 		pageUrl: 'url' in value && typeof value.url === 'string' ? value.url : null,
 		title,
 	};
+}
+
+function readRichTextTitle(value: unknown): string | null {
+	if (!Array.isArray(value)) return null;
+	const title = value
+		.map((item) =>
+			typeof item === 'object' && item !== null && 'plain_text' in item && typeof item.plain_text === 'string' ? item.plain_text : '',
+		)
+		.join('')
+		.trim();
+	return title || null;
 }
 
 export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): Promise<CreatedMeetingPage> {

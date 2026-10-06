@@ -66,11 +66,11 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 				)
 			`);
 			ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS notion_default (
+				CREATE TABLE IF NOT EXISTS notion_database (
 					id INTEGER PRIMARY KEY CHECK (id = 1),
-					page_id TEXT NOT NULL,
-					page_url TEXT,
-					page_title TEXT NOT NULL
+					data_source_id TEXT NOT NULL,
+					title TEXT NOT NULL,
+					title_property TEXT NOT NULL
 				)
 			`);
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
@@ -245,26 +245,22 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 	}
 
-	async getNotionDefault(): Promise<{ pageId: string; pageUrl: string | null; title: string } | null> {
+	async getNotionDatabase(): Promise<{ dataSourceId: string; title: string; titleProperty: string } | null> {
 		const row = this.ctx.storage.sql
-			.exec<{ page_id: string; page_url: string | null; page_title: string }>(
-				'SELECT page_id, page_url, page_title FROM notion_default WHERE id = 1',
+			.exec<{ data_source_id: string; title: string; title_property: string }>(
+				'SELECT data_source_id, title, title_property FROM notion_database WHERE id = 1',
 			)
 			.toArray()[0];
-		return row ? { pageId: row.page_id, pageUrl: row.page_url, title: row.page_title } : null;
+		return row ? { dataSourceId: row.data_source_id, title: row.title, titleProperty: row.title_property } : null;
 	}
 
-	async setNotionDefault(page: { pageId: string; pageUrl: string | null; title: string } | null): Promise<void> {
-		if (!page) {
-			this.ctx.storage.sql.exec('DELETE FROM notion_default WHERE id = 1');
-			return;
-		}
+	async setNotionDatabase(database: { dataSourceId: string; title: string; titleProperty: string }): Promise<void> {
 		this.ctx.storage.sql.exec(
-			`INSERT INTO notion_default (id, page_id, page_url, page_title) VALUES (1, ?, ?, ?)
-			 ON CONFLICT(id) DO UPDATE SET page_id = excluded.page_id, page_url = excluded.page_url, page_title = excluded.page_title`,
-			page.pageId,
-			page.pageUrl,
-			page.title,
+			`INSERT INTO notion_database (id, data_source_id, title, title_property) VALUES (1, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET data_source_id = excluded.data_source_id, title = excluded.title, title_property = excluded.title_property`,
+			database.dataSourceId,
+			database.title,
+			database.titleProperty,
 		);
 	}
 
