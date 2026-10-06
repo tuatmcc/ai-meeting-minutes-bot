@@ -15,15 +15,6 @@ const commands = [
 		name: 'start',
 		description: 'このボイスチャンネルで録音を開始します',
 		type: 1,
-		options: [
-			{
-				name: 'notion_url',
-				description: 'AI議事録を作成する既存のNotion議事録ページURL',
-				type: 3,
-				required: false,
-				max_length: 2048,
-			},
-		],
 	},
 	{ name: 'stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
 	{ name: 'imakita', description: '会議の現在地を短く要約します', type: 1 },

@@ -20,11 +20,6 @@ type DiscordInteraction = {
 	};
 	data?: {
 		name?: string;
-		options?: Array<{
-			name?: string;
-			type?: number;
-			value?: unknown;
-		}>;
 	};
 };
 
@@ -35,7 +30,7 @@ type ParsedCommand = {
 	notionParentPageId: string | null;
 };
 
-type CommandParseResult = { ok: true; command: ParsedCommand } | { ok: false; reason: 'unsupported' | 'invalid-notion-url' };
+type CommandParseResult = { ok: true; command: ParsedCommand } | { ok: false; reason: 'unsupported' };
 
 type BodyReadResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'too-large' | 'read-failed' };
 
@@ -86,11 +81,6 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 
 	const parsed = parseCommand(value, env.DEFAULT_NOTION_PARENT_PAGE_ID);
 	if (!parsed.ok) {
-		if (parsed.reason === 'invalid-notion-url') {
-			return interactionMessage(
-				'Notionの個別ページのリンクを指定してください。データベース一覧で開いたページは、個別ページとして開き直してリンクをコピーしてください。',
-			);
-		}
 		return interactionMessage(
 			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、または `/notion_retry` を実行してください。',
 		);
@@ -285,19 +275,7 @@ function parseCommand(interaction: DiscordInteraction, defaultNotionParentPageId
 		return { ok: false, reason: 'unsupported' };
 	}
 
-	let notionParentPageId: string | null = name === 'start' ? normalizeNotionPageId(defaultNotionParentPageId) : null;
-	if (name === 'start') {
-		const urlOption = interaction.data?.options?.find((option) => option.name === 'notion_url');
-		if (urlOption) {
-			if (urlOption.type !== 3 || typeof urlOption.value !== 'string') {
-				return { ok: false, reason: 'invalid-notion-url' };
-			}
-			notionParentPageId = parseNotionPageId(urlOption.value);
-			if (!notionParentPageId) {
-				return { ok: false, reason: 'invalid-notion-url' };
-			}
-		}
-	}
+	const notionParentPageId = name === 'start' ? normalizeNotionPageId(defaultNotionParentPageId) : null;
 	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId } };
 }
 
@@ -306,38 +284,6 @@ export function normalizeNotionPageId(rawId?: string): string | null {
 	const id = rawId.replaceAll('-', '');
 	if (!/^[0-9a-f]{32}$/i.test(id)) return null;
 	return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`.toLowerCase();
-}
-
-export function parseNotionPageId(rawUrl: string): string | null {
-	try {
-		const url = new URL(rawUrl.trim());
-		const hostname = url.hostname.toLowerCase();
-		if (
-			url.protocol !== 'https:' ||
-			url.searchParams.has('p') ||
-			!(
-				hostname === 'notion.so' ||
-				hostname.endsWith('.notion.so') ||
-				hostname === 'notion.com' ||
-				hostname.endsWith('.notion.com') ||
-				hostname === 'notion.site' ||
-				hostname.endsWith('.notion.site')
-			)
-		) {
-			return null;
-		}
-
-		const lastSegment = url.pathname.split('/').filter(Boolean).at(-1);
-		const match = lastSegment?.match(/(?:^|-)([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
-		if (!match) {
-			return null;
-		}
-
-		const id = match[1].replaceAll('-', '').toLowerCase();
-		return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-	} catch {
-		return null;
-	}
 }
 
 function isDiscordInteraction(value: unknown): value is DiscordInteraction {
