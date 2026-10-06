@@ -84,7 +84,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 		return interactionMessage('この操作には対応していません。');
 	}
 
-	const parsed = parseCommand(value);
+	const parsed = parseCommand(value, env.DEFAULT_NOTION_PARENT_PAGE_ID);
 	if (!parsed.ok) {
 		if (parsed.reason === 'invalid-notion-url') {
 			return interactionMessage(
@@ -266,7 +266,7 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 	return '録音セッションを開始できませんでした。';
 }
 
-function parseCommand(interaction: DiscordInteraction): CommandParseResult {
+function parseCommand(interaction: DiscordInteraction, defaultNotionParentPageId?: string): CommandParseResult {
 	const guildId = interaction.guild_id;
 	const channelId = interaction.channel_id;
 	const sourceChannel = interaction.channel;
@@ -285,7 +285,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 		return { ok: false, reason: 'unsupported' };
 	}
 
-	let notionParentPageId: string | null = null;
+	let notionParentPageId: string | null = name === 'start' ? normalizeNotionPageId(defaultNotionParentPageId) : null;
 	if (name === 'start') {
 		const urlOption = interaction.data?.options?.find((option) => option.name === 'notion_url');
 		if (urlOption) {
@@ -299,6 +299,13 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 		}
 	}
 	return { ok: true, command: { action: name, guildId, channelId, notionParentPageId } };
+}
+
+export function normalizeNotionPageId(rawId?: string): string | null {
+	if (!rawId) return null;
+	const id = rawId.replaceAll('-', '');
+	if (!/^[0-9a-f]{32}$/i.test(id)) return null;
+	return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`.toLowerCase();
 }
 
 export function parseNotionPageId(rawUrl: string): string | null {

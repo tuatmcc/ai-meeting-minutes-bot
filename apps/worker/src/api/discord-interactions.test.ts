@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { parseNotionPageId } from './discord-interactions.js';
+import { normalizeNotionPageId, parseNotionPageId } from './discord-interactions.js';
 
 const PAGE_ID = '12345678-90ab-cdef-1234-567890abcdef';
 const DATABASE_ID = 'fedcba0987654321fedcba0987654321';
+
+describe('normalizeNotionPageId', () => {
+	it('normalizes a configured default page ID', () => {
+		expect(normalizeNotionPageId(PAGE_ID.replaceAll('-', '').toUpperCase())).toBe(PAGE_ID);
+	});
+
+	it('rejects invalid configured IDs', () => {
+		expect(normalizeNotionPageId('not-a-page-id')).toBeNull();
+	});
+});
 
 describe('parseNotionPageId', () => {
 	it.each([
