@@ -17,17 +17,32 @@ const commands = [
 		type: 1,
 		options: [
 			{
-				name: 'notion_url',
-				description: 'AI議事録を作成する既存のNotion議事録ページURL',
+				name: 'notion_page',
+				description: '今回の議事録の保存先（省略時はVCの既定ページ）',
 				type: 3,
 				required: false,
-				max_length: 2048,
+				autocomplete: true,
 			},
 		],
 	},
 	{ name: 'stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
 	{ name: 'imakita', description: '会議の現在地を短く要約します', type: 1 },
 	{ name: 'notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
+	{
+		name: 'notion_default',
+		description: 'このボイスチャンネルの既定の議事録保存先を設定します',
+		type: 1,
+		default_member_permissions: '32',
+		options: [
+			{
+				name: 'page',
+				description: 'Notionページを検索して選択（解除もできます）',
+				type: 3,
+				required: false,
+				autocomplete: true,
+			},
+		],
+	},
 ];
 
 const response = await fetch(`https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/commands`, {

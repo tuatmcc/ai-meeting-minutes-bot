@@ -65,6 +65,14 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					error_code TEXT
 				)
 			`);
+			ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS notion_default (
+					id INTEGER PRIMARY KEY CHECK (id = 1),
+					page_id TEXT NOT NULL,
+					page_url TEXT,
+					page_title TEXT NOT NULL
+				)
+			`);
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
 			if (!columns.some((column) => column.name === 'notion_parent_page_id')) {
 				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_parent_page_id TEXT');
@@ -235,6 +243,29 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		);
 
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
+	}
+
+	async getNotionDefault(): Promise<{ pageId: string; pageUrl: string | null; title: string } | null> {
+		const row = this.ctx.storage.sql
+			.exec<{ page_id: string; page_url: string | null; page_title: string }>(
+				'SELECT page_id, page_url, page_title FROM notion_default WHERE id = 1',
+			)
+			.toArray()[0];
+		return row ? { pageId: row.page_id, pageUrl: row.page_url, title: row.page_title } : null;
+	}
+
+	async setNotionDefault(page: { pageId: string; pageUrl: string | null; title: string } | null): Promise<void> {
+		if (!page) {
+			this.ctx.storage.sql.exec('DELETE FROM notion_default WHERE id = 1');
+			return;
+		}
+		this.ctx.storage.sql.exec(
+			`INSERT INTO notion_default (id, page_id, page_url, page_title) VALUES (1, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET page_id = excluded.page_id, page_url = excluded.page_url, page_title = excluded.page_title`,
+			page.pageId,
+			page.pageUrl,
+			page.title,
+		);
 	}
 
 	async markNotionPageCreating(
