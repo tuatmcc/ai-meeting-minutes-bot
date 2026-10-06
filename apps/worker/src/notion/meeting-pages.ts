@@ -33,7 +33,10 @@ export type NotionDataSource = {
 	titleProperty: string;
 };
 
-export async function searchNotionDataSources(env: WorkerEnv, query: string): Promise<Array<{ id: string; title: string }>> {
+export async function searchNotionDataSources(
+	env: WorkerEnv,
+	query: string,
+): Promise<Array<{ id: string; title: string; parentTitle: string | null }>> {
 	if (!env.NOTION_API_TOKEN) return [];
 	const response = await fetch('https://api.notion.com/v1/search', {
 		method: 'POST',
@@ -47,11 +50,47 @@ export async function searchNotionDataSources(env: WorkerEnv, query: string): Pr
 	});
 	const body = await readNotionResponse(response);
 	if (!Array.isArray(body.results)) return [];
-	return body.results.flatMap((result): Array<{ id: string; title: string }> => {
+	const dataSources = body.results.flatMap((result): Array<{ id: string; title: string; parentPageId: string | null }> => {
 		if (typeof result !== 'object' || result === null || !('id' in result) || typeof result.id !== 'string') return [];
 		const title = readRichTextTitle('title' in result ? result.title : undefined);
-		return title ? [{ id: result.id, title }] : [];
+		const parent = 'database_parent' in result ? result.database_parent : undefined;
+		const parentPageId =
+			typeof parent === 'object' && parent !== null && 'page_id' in parent && typeof parent.page_id === 'string' ? parent.page_id : null;
+		return title ? [{ id: result.id, title, parentPageId }] : [];
 	});
+	const parentPageIds = [...new Set(dataSources.flatMap(({ parentPageId }) => (parentPageId ? [parentPageId] : [])))];
+	const parentTitles = new Map<string, string>();
+	await Promise.all(
+		parentPageIds.map(async (pageId) => {
+			let title: string | null = null;
+			try {
+				title = await getNotionPageTitle(env, pageId);
+			} catch {
+				return;
+			}
+			if (title) parentTitles.set(pageId, title);
+		}),
+	);
+	return dataSources.map(({ id, title, parentPageId }) => ({
+		id,
+		title,
+		parentTitle: parentPageId ? (parentTitles.get(parentPageId) ?? null) : null,
+	}));
+}
+
+async function getNotionPageTitle(env: WorkerEnv, pageId: string): Promise<string | null> {
+	if (!env.NOTION_API_TOKEN) return null;
+	const response = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(pageId)}`, {
+		headers: notionHeaders(env.NOTION_API_TOKEN),
+	});
+	const body = await readNotionResponse(response);
+	if (!('properties' in body) || typeof body.properties !== 'object' || body.properties === null) return null;
+	for (const property of Object.values(body.properties)) {
+		if (typeof property === 'object' && property !== null && 'type' in property && property.type === 'title') {
+			return readRichTextTitle('title' in property ? property.title : undefined);
+		}
+	}
+	return null;
 }
 
 export async function getNotionDataSource(env: WorkerEnv, dataSourceId: string): Promise<NotionDataSource | null> {
