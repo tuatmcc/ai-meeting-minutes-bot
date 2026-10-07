@@ -12,7 +12,7 @@ if (!/^\d{17,20}$/.test(DISCORD_APPLICATION_ID)) {
 
 const commands = [
 	{
-		name: 'start',
+		name: 'meeting_start',
 		description: 'このボイスチャンネルで録音を開始します',
 		type: 1,
 		options: [
@@ -25,11 +25,12 @@ const commands = [
 			},
 		],
 	},
-	{ name: 'stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
-	{ name: 'imakita', description: '会議の現在地を短く要約します', type: 1 },
-	{ name: 'notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
+	{ name: 'meeting_stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
+	{ name: 'meeting_imakita', description: '会議の現在地を短く要約します', type: 1 },
+	{ name: 'meeting_status', description: 'このボイスチャンネルの録音状態を表示します', type: 1 },
+	{ name: 'meeting_notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
 	{
-		name: 'link_notion_db',
+		name: 'meeting_link_notion_db',
 		description: 'このボイスチャンネルの議事録DBを設定します',
 		type: 1,
 		default_member_permissions: '32',

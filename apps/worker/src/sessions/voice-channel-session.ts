@@ -208,6 +208,11 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return row ? toSession(row) : null;
 	}
 
+	async getLatestSession(): Promise<VoiceSession | null> {
+		const row = this.ctx.storage.sql.exec<SessionRow>('SELECT * FROM sessions ORDER BY created_at DESC LIMIT 1').toArray()[0];
+		return row ? toSession(row) : null;
+	}
+
 	async startSession(
 		guildId: string,
 		channelId: string,

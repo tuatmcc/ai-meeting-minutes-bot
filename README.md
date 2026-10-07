@@ -21,7 +21,7 @@ Cloudflare Worker → R2 に一時保存 → Workers AI Whisper
 
 話者別 buffer は無音区間で区切り、10〜60秒程度で送信します。短い発話も開始から60秒経過した時点か、録音停止時に送信します。Worker への送信は録音と並行して行い、各リクエストで文字起こし結果を受け取ります。Cloudflare Queues は使用しません。
 
-Worker と gateway 間の HTTP 契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discord の `/start`・`/stop` で録音を操作し、`/imakita` で確定済みの文字起こしを要約します。VCごとに `/link_notion_db` で議事録DBを設定し、`/start` ではそのDB内の手動作成済み議事録を選択します。AI議事録は選択した項目の子ページとして毎回新規作成します。保存失敗は `/notion_retry` で再試行できます。
+Worker と gateway 間の HTTP 契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discord コマンドには `meeting_` プレフィックスが付きます。`/meeting_start`・`/meeting_stop` で録音を操作し、`/meeting_status` で状態を確認、`/meeting_imakita` で確定済みの文字起こしを要約します。VCごとに `/meeting_link_notion_db` で議事録DBを設定し、`/meeting_start` ではそのDB内の手動作成済み議事録を選択します。AI議事録は選択した項目の子ページとして毎回新規作成します。保存失敗は `/meeting_notion_retry` で再試行できます。
 
 ## セルフホスト Gateway の起動
 

@@ -26,7 +26,7 @@ type DiscordInteraction = {
 };
 
 type ParsedCommand = {
-	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db';
+	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db' | 'status';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
@@ -92,7 +92,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/start`、`/stop`、`/imakita`、`/notion_retry`、または `/link_notion_db` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、`/meeting_notion_retry`、または `/meeting_link_notion_db` を実行してください。',
 		);
 	}
 
@@ -150,7 +150,8 @@ async function executeCommand(
 	if (command.action === 'start') {
 		const notionParentPageId = command.notionParentPageId;
 		if (!notionParentPageId) return '議事録DBの項目を選択してください。';
-		if (!(await session.getNotionDatabase())) return 'この VC の議事録DBが未設定です。管理者が `/link_notion_db` で設定してください。';
+		if (!(await session.getNotionDatabase()))
+			return 'この VC の議事録DBが未設定です。管理者が `/meeting_link_notion_db` で設定してください。';
 		const result = await session.startSession(command.guildId, command.channelId, interactionId, notionParentPageId);
 		if (!result.ok) {
 			return result.code === 'SESSION_ALREADY_ACTIVE'
@@ -223,6 +224,13 @@ async function executeCommand(
 	}
 
 	const active = await session.getActiveSession();
+	if (command.action === 'status') {
+		const gatewayStatus = await env.GATEWAY_CONTROL.getByName('default').getConnectionStatus();
+		const latest = active ?? (await session.getLatestSession());
+		return latest
+			? formatSessionStatus(latest, gatewayStatus)
+			: `録音状態: セッションなし\nGateway: ${gatewayStatus === 'connected' ? '接続中' : '未接続'}`;
+	}
 	if (command.action === 'imakita') {
 		if (!active || active.guildId !== command.guildId || active.channelId !== command.channelId) {
 			return 'この VC では録音していません。';
@@ -262,6 +270,37 @@ async function executeCommand(
 		: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`;
 }
 
+function formatSessionStatus(session: VoiceSession, gatewayStatus: 'connected' | 'disconnected'): string {
+	const state = {
+		starting: '開始処理中',
+		recording: '録音中',
+		processing: '文字起こし処理中',
+		completed: '完了',
+		failed: '失敗',
+	}[session.state];
+	const notionStatus = {
+		not_requested: '対象外',
+		unknown: '状態不明',
+		pending: '作成待ち',
+		creating: '作成中',
+		created: '更新待ち',
+		queued: '保存待ち',
+		publishing: '保存中',
+		retrying: '再試行待ち',
+		published: '保存済み',
+		failed: '保存失敗',
+	}[session.notionPageStatus];
+	const lines = [
+		`録音状態: ${state}`,
+		`Gateway: ${gatewayStatus === 'connected' ? '接続中' : '未接続'}`,
+		`開始: <t:${Math.floor(Date.parse(session.createdAt) / 1000)}:f>`,
+		`Notion: ${notionStatus}`,
+	];
+	if (session.durationMs !== null) lines.push(`録音時間: ${Math.floor(session.durationMs / 60_000)}分`);
+	if (session.notionPageUrl) lines.push(`議事録: <${session.notionPageUrl}>`);
+	return lines.join('\n');
+}
+
 function sessionStateMessage(session: VoiceSession, channelId: string): string {
 	if (session.state === 'recording') {
 		return `この VC はすでに録音中です: <#${channelId}>`;
@@ -278,7 +317,7 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEnv): Promise<Response> {
 	const data = interaction.data;
 	const option = data?.options?.find((item) => item.focused);
-	const isDatabaseCommand = data?.name === 'link_notion_db';
+	const isDatabaseCommand = data?.name === 'meeting_link_notion_db';
 	const permissions = interaction.member?.permissions;
 	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
 	if (
@@ -286,7 +325,7 @@ async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEn
 		!SNOWFLAKE_PATTERN.test(interaction.guild_id) ||
 		!interaction.channel_id ||
 		!SNOWFLAKE_PATTERN.test(interaction.channel_id) ||
-		(data?.name !== 'start' && !isDatabaseCommand) ||
+		(data?.name !== 'meeting_start' && !isDatabaseCommand) ||
 		(isDatabaseCommand && !canManageGuild) ||
 		!option ||
 		option.name !== (isDatabaseCommand ? 'database' : 'meeting')
@@ -338,12 +377,18 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'start' && name !== 'stop' && name !== 'imakita' && name !== 'notion_retry' && name !== 'link_notion_db')
+		(name !== 'meeting_start' &&
+			name !== 'meeting_stop' &&
+			name !== 'meeting_imakita' &&
+			name !== 'meeting_status' &&
+			name !== 'meeting_notion_retry' &&
+			name !== 'meeting_link_notion_db')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}
 
-	const optionName = name === 'start' ? 'meeting' : name === 'link_notion_db' ? 'database' : null;
+	const optionName = name === 'meeting_start' ? 'meeting' : name === 'meeting_link_notion_db' ? 'database' : null;
+	const action = name.replace(/^meeting_/, '') as ParsedCommand['action'];
 	const option = optionName ? interaction.data?.options?.find((item) => item.name === optionName) : undefined;
 	const selectedValue = option && typeof option.value === 'string' ? option.value : null;
 	const normalizedId = normalizeNotionPageId(selectedValue ?? undefined);
@@ -353,11 +398,11 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 	return {
 		ok: true,
 		command: {
-			action: name,
+			action,
 			guildId,
 			channelId,
-			notionParentPageId: name === 'start' ? normalizedId : null,
-			notionDatabaseId: name === 'link_notion_db' ? normalizedId : null,
+			notionParentPageId: action === 'start' ? normalizedId : null,
+			notionDatabaseId: action === 'link_notion_db' ? normalizedId : null,
 			canManageGuild,
 		},
 	};
