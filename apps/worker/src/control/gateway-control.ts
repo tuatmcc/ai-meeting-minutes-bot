@@ -41,6 +41,10 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 		return { gatewayConnected: this.authenticatedGatewaySocket() !== null };
 	}
 
+	getConnectionStatus(): 'connected' | 'disconnected' {
+		return this.authenticatedGatewaySocket() ? 'connected' : 'disconnected';
+	}
+
 	async alarm(): Promise<void> {
 		const inFlight = this.ctx.storage.sql
 			.exec<CommandRow>("SELECT * FROM commands WHERE state = 'in_flight' ORDER BY created_at, rowid LIMIT 1")
