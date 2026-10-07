@@ -1,6 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
-import { createMeetingPage, getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
+import { getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
@@ -181,7 +181,9 @@ async function executeCommand(
 				if (!creating.claimed) {
 					notionPageUrl = creating.session.notionPageUrl;
 				} else {
-					const page = await createMeetingPage(env, creating.session);
+					const page = await env.VOICE_CHANNEL_SESSION.getByName(`notion-parent:${notionParentPageId}`).createMeetingPageForParent(
+						creating.session,
+					);
 					const savedPage = await session.setNotionPage(result.session.sessionId, page.pageId, page.pageUrl);
 					if (!savedPage.ok) {
 						throw new Error(`Could not save Notion page ID: ${savedPage.code}`);

@@ -28,7 +28,7 @@ Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限�
 
 Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemma-4-26b-a4b-it` を使用します。`/meeting_imakita` は `@cf/qwen/qwen3-30b-a3b-fp8` を使用します。どちらも思考モードを無効にしています。
 
-`/meeting_start` を実行すると選択したNotion DB項目の子ページ「AI議事録」を新規作成してDiscordにリンクを返します。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に新規作成を再試行します。DOはNotion出力の状態・試行回数・直近の失敗理由を保存し、最終出力に失敗した場合は初回を含め最大5試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。議事録DBが未設定の場合、`/meeting_start` は設定方法を案内して録音を開始しません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログとセッション状態に記録されます。
+`/meeting_start` を実行すると選択したNotion DB項目の子ページ「AI議事録」を作成し、Discordにリンクを返します。同じ親項目で次の会議を開始すると既存の「AI議事録」ページを再利用します。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に作成または既存ページの検索を再試行します。DOはNotion出力の状態・試行回数・直近の失敗理由を保存し、最終出力に失敗した場合は初回を含め最大5試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。議事録DBが未設定の場合、`/meeting_start` は設定方法を案内して録音を開始しません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログとセッション状態に記録されます。
 
 1. Notion Developer Portalでinternal connectionを作成し、`Read content`、`Insert content`、`Update content` の権限を付けます。
 2. 対象の議事録データベースにconnectionを追加します。WorkerがDB内の項目を検索し、選択項目の下にAI議事録ページを作成します。

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
-import { createMeetingPage, publishMeetingToNotion } from '../notion/meeting-pages.js';
+import { createMeetingPage, publishMeetingToNotion, type CreatedMeetingPage } from '../notion/meeting-pages.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
 import {
 	isValidAudio,
@@ -71,6 +71,13 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					data_source_id TEXT NOT NULL,
 					title TEXT NOT NULL,
 					title_property TEXT NOT NULL
+				)
+			`);
+			ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS notion_parent_pages (
+					parent_page_id TEXT PRIMARY KEY,
+					page_id TEXT NOT NULL,
+					page_url TEXT
 				)
 			`);
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
@@ -267,6 +274,28 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			database.title,
 			database.titleProperty,
 		);
+	}
+
+	async createMeetingPageForParent(session: VoiceSession): Promise<CreatedMeetingPage> {
+		if (!session.notionParentPageId) throw new Error('Notion parent page ID is required');
+		return this.ctx.blockConcurrencyWhile(async () => {
+			const existing = this.ctx.storage.sql
+				.exec<{ page_id: string; page_url: string | null }>(
+					'SELECT page_id, page_url FROM notion_parent_pages WHERE parent_page_id = ?',
+					session.notionParentPageId,
+				)
+				.toArray()[0];
+			if (existing) return { pageId: existing.page_id, pageUrl: existing.page_url };
+
+			const page = await createMeetingPage(this.env, session);
+			this.ctx.storage.sql.exec(
+				'INSERT INTO notion_parent_pages (parent_page_id, page_id, page_url) VALUES (?, ?, ?)',
+				session.notionParentPageId,
+				page.pageId,
+				page.pageUrl,
+			);
+			return page;
+		});
 	}
 
 	async markNotionPageCreating(
@@ -482,7 +511,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		try {
 			let session = toSession(this.findBySessionId(row.session_id)!);
 			if (!session.notionPageId) {
-				const page = await createMeetingPage(this.env, session);
+				const page = await this.createMeetingPageForParent(session);
 				this.ctx.storage.sql.exec(
 					'UPDATE sessions SET notion_page_id = ?, notion_page_url = ? WHERE session_id = ?',
 					page.pageId,
