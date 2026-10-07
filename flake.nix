@@ -15,7 +15,7 @@
       ];
 
       imports = [
-        ./flake/parts/dev-shell.nix
+        ./nix/dev-shell.nix
       ];
     };
 }
