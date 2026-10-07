@@ -4,10 +4,10 @@ import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
 import { loadConfig } from './config.ts';
 import { AsrApi } from './clients/asr-api.ts';
-import { AsrSegmenter } from './clients/asr-segmenter.ts';
+import { AsrSegmenter, type MeetingTranscription } from './clients/asr-segmenter.ts';
 import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
 import { uploadToR2 } from './clients/r2-upload.ts';
-import { SessionApi } from './clients/session-api.ts';
+import { SessionApi, type SessionResumeInfo } from './clients/session-api.ts';
 import { VoiceRecorder } from './discord/voice-recorder.ts';
 
 type ActiveRecording = {
@@ -15,6 +15,7 @@ type ActiveRecording = {
 	connection: VoiceConnection;
 	recorder: VoiceRecorder;
 	asrSegmenter: AsrSegmenter;
+	resumeInfo?: SessionResumeInfo;
 	stopPromise?: Promise<void>;
 	failureToRecord?: string;
 };
@@ -37,7 +38,7 @@ const clientReady = new Promise<void>((resolve) => {
 	});
 });
 
-async function startRecording(command: GatewayCommand): Promise<void> {
+async function startRecording(command: Extract<GatewayCommand, { action: 'start' }>): Promise<void> {
 	const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
 	if (!session || session.sessionId !== command.sessionId || (session.state !== 'starting' && session.state !== 'recording')) {
 		console.log(`[recording] stale start ignored: ${command.sessionId}`);
@@ -55,6 +56,7 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 	if ([...activeRecordings.values()].some(({ command: active }) => active.guildId === command.guildId)) {
 		throw new Error(`Gateway is already recording in guild ${command.guildId}`);
 	}
+	const resumeInfo = command.resume ? await sessionApi.getResumeInfo(command.guildId, command.channelId, command.sessionId) : undefined;
 
 	let connection: VoiceConnection | undefined;
 	let recorder: VoiceRecorder | undefined;
@@ -100,15 +102,20 @@ async function startRecording(command: GatewayCommand): Promise<void> {
 			(speakerId, startMs, pcm) => asrSegmenter?.addAudio(speakerId, startMs, pcm),
 			(elapsedMs) => asrSegmenter?.flushSilent(elapsedMs),
 		);
-		asrSegmenter = new AsrSegmenter(asrApi, join(config.recordingsDir, command.sessionId), {
-			guildId: command.guildId,
-			channelId: command.channelId,
-			sessionId: command.sessionId,
-		});
+		asrSegmenter = new AsrSegmenter(
+			asrApi,
+			join(config.recordingsDir, command.sessionId),
+			{
+				guildId: command.guildId,
+				channelId: command.channelId,
+				sessionId: command.sessionId,
+			},
+			command.resume,
+		);
 		await sessionApi.markRecordingStarted(command.guildId, command.channelId, command.sessionId);
 		recorder.start();
 
-		activeRecordings.set(command.sessionId, { command, connection, recorder, asrSegmenter });
+		activeRecordings.set(command.sessionId, { command, connection, recorder, asrSegmenter, resumeInfo });
 		console.log(`[recording] started: ${command.sessionId}`);
 	} catch (error) {
 		if (recorder) {
@@ -146,12 +153,29 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 				await asrSegmenter.finish().catch(() => undefined);
 				throw error;
 			});
-			const transcription = await asrSegmenter.finish();
+			const currentTranscription = await asrSegmenter.finish();
+			const transcription = recording.resumeInfo
+				? mergeTranscriptions(recording.resumeInfo.manifest.transcription, currentTranscription)
+				: currentTranscription;
+			const durationMs = (recording.resumeInfo?.manifest.durationMs ?? 0) + result.durationMs;
 			console.log(`[recording] captured ${result.stats.framesReceived} frames (${result.durationMs}ms) for ${command.sessionId}`);
 			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
 			const manifestPath = join(result.sessionDir, 'manifest.json');
 			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
-			await writeFile(manifestPath, `${JSON.stringify({ ...manifest, transcription }, null, 2)}\n`, 'utf8');
+			await writeFile(
+				manifestPath,
+				`${JSON.stringify(
+					{
+						...manifest,
+						startedAt: recording.resumeInfo?.manifest.startedAt ?? manifest.startedAt,
+						durationMs,
+						transcription,
+					},
+					null,
+					2,
+				)}\n`,
+				'utf8',
+			);
 
 			const uploads = await sessionApi.createUploadTargets(command.guildId, command.channelId, command.sessionId);
 			const manifestUpload = uploads.find(({ key }) => key.endsWith('/manifest.json'));
@@ -162,7 +186,7 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 			const manifestSizeBytes = await uploadToR2(manifestUpload, manifestPath);
 			await sessionApi.completeSession(command.guildId, command.channelId, command.sessionId, {
 				endedAt: result.endedAt,
-				durationMs: result.durationMs,
+				durationMs,
 				manifestSizeBytes,
 			});
 			console.log(`[transcription] saved to R2: ${command.sessionId} (${transcription.model})`);
@@ -262,6 +286,15 @@ async function editDiscordInteraction(applicationId: string, token: string, cont
 
 function sameSession(left: GatewayCommand, right: GatewayCommand): boolean {
 	return left.sessionId === right.sessionId && left.guildId === right.guildId && left.channelId === right.channelId;
+}
+
+function mergeTranscriptions(previous: MeetingTranscription, current: MeetingTranscription): MeetingTranscription {
+	return {
+		model: current.model || previous.model,
+		language: current.language ?? previous.language,
+		text: [previous.text, current.text].filter(Boolean).join('\n'),
+		segments: [...previous.segments, ...current.segments].sort((left, right) => left.startMs - right.startMs || left.index - right.index),
+	};
 }
 
 client.on(Events.Error, (error) => {

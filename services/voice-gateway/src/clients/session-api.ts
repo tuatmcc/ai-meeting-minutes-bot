@@ -1,3 +1,5 @@
+import type { MeetingTranscription } from './asr-segmenter.ts';
+
 export type Session = {
 	sessionId: string;
 	guildId: string;
@@ -10,6 +12,16 @@ export type UploadTarget = {
 	key: string;
 	url: string;
 	contentType: string;
+};
+
+export type SessionResumeInfo = {
+	segmentIndexOffset: number;
+	timeOffsetMs: number;
+	manifest: {
+		startedAt: string;
+		durationMs: number;
+		transcription: MeetingTranscription;
+	};
 };
 
 export class SessionApi {
@@ -35,6 +47,12 @@ export class SessionApi {
 			method: 'GET',
 		});
 		return result.session;
+	}
+
+	async getResumeInfo(guildId: string, channelId: string, sessionId: string): Promise<SessionResumeInfo> {
+		const result = await this.request<unknown>(this.sessionPath(guildId, channelId, sessionId, 'resume-info'), { method: 'GET' });
+		if (!isSessionResumeInfo(result)) throw new Error('Worker returned invalid session resume data');
+		return result;
 	}
 
 	async summarizeTranscript(guildId: string, channelId: string, sessionId: string, transcript: string): Promise<string> {
@@ -117,4 +135,38 @@ export class SessionApi {
 		}
 		return body as T;
 	}
+}
+
+function isSessionResumeInfo(value: unknown): value is SessionResumeInfo {
+	if (typeof value !== 'object' || value === null) return false;
+	const resume = value as Record<string, unknown>;
+	if (
+		typeof resume.segmentIndexOffset !== 'number' ||
+		!Number.isSafeInteger(resume.segmentIndexOffset) ||
+		resume.segmentIndexOffset < 0 ||
+		typeof resume.timeOffsetMs !== 'number' ||
+		!Number.isSafeInteger(resume.timeOffsetMs) ||
+		resume.timeOffsetMs < 0 ||
+		typeof resume.manifest !== 'object' ||
+		resume.manifest === null
+	) {
+		return false;
+	}
+	const manifest = resume.manifest as Record<string, unknown>;
+	if (
+		typeof manifest.startedAt !== 'string' ||
+		typeof manifest.durationMs !== 'number' ||
+		!Number.isFinite(manifest.durationMs) ||
+		typeof manifest.transcription !== 'object' ||
+		manifest.transcription === null
+	) {
+		return false;
+	}
+	const transcription = manifest.transcription as Record<string, unknown>;
+	return (
+		typeof transcription.model === 'string' &&
+		(transcription.language === null || typeof transcription.language === 'string') &&
+		typeof transcription.text === 'string' &&
+		Array.isArray(transcription.segments)
+	);
 }

@@ -19,7 +19,8 @@ export class AsrSegmenter {
 	private readonly speakers = new Map<string, SpeakerBuffer>();
 	private readonly queue: PendingSegment[] = [];
 	private readonly completedSegments: AsrTranscriptSegment[] = [];
-	private nextSegmentIndex = 0;
+	private nextSegmentIndex: number;
+	private readonly timeOffsetMs: number;
 	private workerPromise: Promise<void> | undefined;
 	private failure: Error | undefined;
 	private finished = false;
@@ -29,10 +30,17 @@ export class AsrSegmenter {
 	private readonly recordingDir: string;
 	private readonly session: AsrSession;
 
-	constructor(asrApi: Pick<AsrApi, 'transcribeWav'>, recordingDir: string, session: AsrSession) {
+	constructor(
+		asrApi: Pick<AsrApi, 'transcribeWav'>,
+		recordingDir: string,
+		session: AsrSession,
+		resume: { segmentIndexOffset: number; timeOffsetMs: number } = { segmentIndexOffset: 0, timeOffsetMs: 0 },
+	) {
 		this.asrApi = asrApi;
 		this.recordingDir = recordingDir;
 		this.session = session;
+		this.nextSegmentIndex = resume.segmentIndexOffset;
+		this.timeOffsetMs = resume.timeOffsetMs;
 	}
 
 	addAudio(speakerId: string, startMs: number, pcm: Buffer): void {
@@ -46,7 +54,7 @@ export class AsrSegmenter {
 		for (let offset = 0; offset < pcm.length; offset += BYTES_PER_SAMPLE) energy += pcm.readFloatLE(offset) ** 2;
 		if (Math.sqrt(energy / (pcm.length / BYTES_PER_SAMPLE)) < 0.003) return;
 
-		let startSample = Math.round((startMs * SAMPLE_RATE) / 1000);
+		let startSample = Math.round(((startMs + this.timeOffsetMs) * SAMPLE_RATE) / 1000);
 		let remaining = pcm;
 		while (remaining.length > 0 && !this.failure) {
 			let buffer = this.speakers.get(speakerId);
@@ -82,8 +90,9 @@ export class AsrSegmenter {
 	flushSilent(elapsedMs: number): void {
 		if (this.finished || this.failure) return;
 		for (const [speakerId, buffer] of this.speakers) {
-			const ready = buffer.endSample - buffer.startSample >= MIN_SAMPLES || elapsedMs - samplesToMs(buffer.startSample) >= 60_000;
-			if (ready && elapsedMs - samplesToMs(buffer.endSample) >= SILENCE_MS) this.flush(speakerId);
+			const meetingElapsedMs = elapsedMs + this.timeOffsetMs;
+			const ready = buffer.endSample - buffer.startSample >= MIN_SAMPLES || meetingElapsedMs - samplesToMs(buffer.startSample) >= 60_000;
+			if (ready && meetingElapsedMs - samplesToMs(buffer.endSample) >= SILENCE_MS) this.flush(speakerId);
 		}
 	}
 

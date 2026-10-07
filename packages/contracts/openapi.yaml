@@ -197,6 +197,32 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/resume-info:
+    parameters:
+      - $ref: '#/components/parameters/guildId'
+      - $ref: '#/components/parameters/channelId'
+      - $ref: '#/components/parameters/sessionId'
+    get:
+      operationId: getSessionResumeInfo
+      description: Returns the previous manifest and offsets while a recently completed session is being resumed.
+      responses:
+        '200':
+          description: Resume offsets and the previous session manifest.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [segmentIndexOffset, timeOffsetMs, manifest]
+                properties:
+                  segmentIndexOffset: { type: integer, minimum: 0 }
+                  timeOffsetMs: { type: integer, minimum: 0 }
+                  manifest:
+                    type: object
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/guilds/{guildId}/voice-channels/{channelId}/sessions/{sessionId}/upload-targets:
     parameters:
       - $ref: '#/components/parameters/guildId'

@@ -168,6 +168,7 @@ async function executeCommand(
 			guildId: command.guildId,
 			channelId: command.channelId,
 			sessionId: result.session.sessionId,
+			...(result.resumed ? { resume: { segmentIndexOffset: result.segmentIndexOffset ?? 0, timeOffsetMs: result.timeOffsetMs ?? 0 } } : {}),
 		});
 
 		let notionPageUrl = result.session.notionPageUrl;
@@ -210,9 +211,10 @@ async function executeCommand(
 			: notionPageCreationFailed
 				? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
 				: ' Notionページは録音終了後に更新します。';
+		const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
 		return queued.gatewayConnected
-			? `録音の開始要求を送信しました: <#${command.channelId}>${notionMessage}`
-			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
+			? `${action}: <#${command.channelId}>${notionMessage}`
+			: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
 	}
 
 	if (command.action === 'notion_retry') {
