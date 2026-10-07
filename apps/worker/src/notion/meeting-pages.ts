@@ -189,10 +189,49 @@ export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): 
 	if (typeof body.id !== 'string') {
 		throw new Error('Notion API returned a page without an ID');
 	}
+	try {
+		await wrapMeetingPageInCallout(env, session.notionParentPageId, body.id);
+	} catch (error) {
+		console.error('[notion] failed to wrap meeting page in callout', error instanceof Error ? error.name : 'unknown error');
+	}
 	return {
 		pageId: body.id,
 		pageUrl: typeof body.url === 'string' ? body.url : null,
 	};
+}
+
+async function wrapMeetingPageInCallout(env: WorkerEnv, parentPageId: string, pageId: string): Promise<void> {
+	const response = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(parentPageId)}/markdown`, {
+		headers: notionHeaders(env.NOTION_API_TOKEN as string),
+	});
+	const body = await readNotionResponse(response);
+	if (typeof body.markdown !== 'string') {
+		throw new Error('Notion API returned a page without markdown content');
+	}
+
+	const normalizedPageId = pageId.replaceAll('-', '').toLowerCase();
+	const pageBlocks = body.markdown.matchAll(/<page\b[^>]*url="([^"]+)"[^>]*>[\s\S]*?<\/page>/g);
+	const pageBlock = [...pageBlocks].find((match) => match[1]?.replaceAll('-', '').toLowerCase().includes(normalizedPageId))?.[0];
+	if (!pageBlock) {
+		throw new Error('Could not find the new meeting page in its parent markdown');
+	}
+
+	const updateResponse = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(parentPageId)}/markdown`, {
+		method: 'PATCH',
+		headers: notionHeaders(env.NOTION_API_TOKEN as string),
+		body: JSON.stringify({
+			type: 'update_content',
+			update_content: {
+				content_updates: [
+					{
+						old_str: pageBlock,
+						new_str: `<callout icon="📒" color="blue_bg">\n\t${pageBlock}\n</callout>`,
+					},
+				],
+			},
+		}),
+	});
+	await readNotionResponse(updateResponse);
 }
 
 export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSession): Promise<void> {
