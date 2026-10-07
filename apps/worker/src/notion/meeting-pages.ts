@@ -166,6 +166,9 @@ export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): 
 		throw new Error('Notion API token and parent page ID are required');
 	}
 
+	const existingPage = await findMeetingPage(env, session.notionParentPageId);
+	if (existingPage) return existingPage;
+
 	const response = await fetch('https://api.notion.com/v1/pages', {
 		method: 'POST',
 		headers: notionHeaders(env.NOTION_API_TOKEN),
@@ -198,6 +201,28 @@ export async function createMeetingPage(env: WorkerEnv, session: VoiceSession): 
 		pageId: body.id,
 		pageUrl: typeof body.url === 'string' ? body.url : null,
 	};
+}
+
+async function findMeetingPage(env: WorkerEnv, parentPageId: string): Promise<CreatedMeetingPage | null> {
+	const response = await fetch(`https://api.notion.com/v1/pages/${encodeURIComponent(parentPageId)}/markdown`, {
+		headers: notionHeaders(env.NOTION_API_TOKEN as string),
+	});
+	const body = await readNotionResponse(response);
+	if (typeof body.markdown !== 'string') return null;
+
+	for (const match of body.markdown.matchAll(/<page\b([^>]*)>([\s\S]*?)<\/page>/g)) {
+		const attributes = match[1] ?? '';
+		const title = (attributes.match(/\btitle="([^"]*)"/)?.[1] ?? match[2] ?? '').replace(/<[^>]*>/g, '').trim();
+		if (title !== 'AI議事録') continue;
+		const url = attributes.match(/\burl="([^"]+)"/)?.[1] ?? null;
+		const pageIdMatch = url?.match(/[0-9a-f]{8}(?:-?[0-9a-f]{4}){3}-?[0-9a-f]{12}/i)?.[0];
+		if (pageIdMatch) {
+			const id = pageIdMatch.replaceAll('-', '').toLowerCase();
+			const pageId = `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+			return { pageId, pageUrl: url };
+		}
+	}
+	return null;
 }
 
 async function wrapMeetingPageInCallout(env: WorkerEnv, parentPageId: string, pageId: string): Promise<void> {

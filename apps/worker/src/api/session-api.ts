@@ -59,6 +59,17 @@ async function routeSessionApi(request: Request, env: WorkerEnv, ctx: ExecutionC
 		}
 		return operationResponse(await session.startSession(guildId, channelId, requestId), 201);
 	}
+	if (request.method === 'GET' && segments.length === 9 && UUID_PATTERN.test(segments[7]) && segments[8] === 'resume-info') {
+		const resumeInfo = await session.getResumeInfo(segments[7]);
+		if (!resumeInfo) return json({ error: { code: 'SESSION_NOT_RESUMABLE' } }, 409);
+		const manifest = await env.RECORDINGS.get(resumeInfo.session.manifestKey);
+		if (!manifest) return json({ error: { code: 'SESSION_MANIFEST_NOT_FOUND' } }, 409);
+		return json({
+			segmentIndexOffset: resumeInfo.segmentIndexOffset,
+			timeOffsetMs: resumeInfo.timeOffsetMs,
+			manifest: await manifest.json<unknown>(),
+		});
+	}
 
 	if (request.method !== 'POST' || segments.length !== 9 || !UUID_PATTERN.test(segments[7])) {
 		return json({ error: { code: 'NOT_FOUND' } }, 404);

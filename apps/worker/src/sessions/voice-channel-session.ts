@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
-import { createMeetingPage, publishMeetingToNotion } from '../notion/meeting-pages.js';
+import { createMeetingPage, publishMeetingToNotion, type CreatedMeetingPage } from '../notion/meeting-pages.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
 import {
 	isValidAudio,
@@ -38,6 +38,7 @@ type SessionRow = {
 
 export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 	private readonly transcriptions = new Map<string, Promise<TranscriptionOperation>>();
+	private readonly meetingPageCreations = new Map<string, Promise<CreatedMeetingPage>>();
 
 	constructor(ctx: DurableObjectState, env: WorkerEnv) {
 		super(ctx, env);
@@ -71,6 +72,13 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					data_source_id TEXT NOT NULL,
 					title TEXT NOT NULL,
 					title_property TEXT NOT NULL
+				)
+			`);
+			ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS notion_parent_pages (
+					parent_page_id TEXT PRIMARY KEY,
+					page_id TEXT NOT NULL,
+					page_url TEXT
 				)
 			`);
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
@@ -221,12 +229,66 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 	): Promise<SessionOperation> {
 		const existingRequest = this.findByRequestId(requestId);
 		if (existingRequest) {
+			if (existingRequest.state === 'starting' && existingRequest.duration_ms !== null) {
+				const segments = this.ctx.storage.sql
+					.exec<{ next_segment_index: number }>(
+						'SELECT COALESCE(MAX(segment_index) + 1, 0) AS next_segment_index FROM audio_segments WHERE session_id = ?',
+						existingRequest.session_id,
+					)
+					.one();
+				return {
+					ok: true,
+					resumed: true,
+					session: toSession(existingRequest),
+					segmentIndexOffset: segments.next_segment_index,
+					timeOffsetMs: existingRequest.duration_ms,
+				};
+			}
 			return { ok: true, session: toSession(existingRequest) };
 		}
 
 		const activeSession = this.findActiveSession();
 		if (activeSession) {
 			return { ok: false, code: 'SESSION_ALREADY_ACTIVE', session: activeSession };
+		}
+		if (notionParentPageId) {
+			const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+			const resumable = this.ctx.storage.sql
+				.exec<SessionRow>(
+					`SELECT * FROM sessions
+					 WHERE state = 'completed'
+					   AND notion_parent_page_id = ?
+					   AND ended_at >= ?
+					 ORDER BY ended_at DESC
+					 LIMIT 1`,
+					notionParentPageId,
+					cutoff,
+				)
+				.toArray()[0];
+			if (resumable) {
+				this.ctx.storage.sql.exec(
+					`UPDATE sessions
+					 SET request_id = ?, state = 'starting', ended_at = NULL, error_code = NULL,
+					     notion_page_status = CASE WHEN notion_page_id IS NULL THEN 'pending' ELSE 'created' END,
+					     notion_attempt_count = 0, notion_last_error = NULL, notion_next_attempt_at = NULL
+					 WHERE session_id = ?`,
+					requestId,
+					resumable.session_id,
+				);
+				const segments = this.ctx.storage.sql
+					.exec<{ next_segment_index: number }>(
+						'SELECT COALESCE(MAX(segment_index) + 1, 0) AS next_segment_index FROM audio_segments WHERE session_id = ?',
+						resumable.session_id,
+					)
+					.one();
+				return {
+					ok: true,
+					resumed: true,
+					session: toSession(this.findBySessionId(resumable.session_id)!),
+					segmentIndexOffset: segments.next_segment_index,
+					timeOffsetMs: resumable.duration_ms ?? 0,
+				};
+			}
 		}
 
 		const sessionId = crypto.randomUUID();
@@ -250,6 +312,18 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 	}
 
+	async getResumeInfo(sessionId: string): Promise<{ session: VoiceSession; segmentIndexOffset: number; timeOffsetMs: number } | null> {
+		const row = this.findBySessionId(sessionId);
+		if (!row || row.state !== 'starting' || row.duration_ms === null) return null;
+		const segments = this.ctx.storage.sql
+			.exec<{ next_segment_index: number }>(
+				'SELECT COALESCE(MAX(segment_index) + 1, 0) AS next_segment_index FROM audio_segments WHERE session_id = ?',
+				sessionId,
+			)
+			.one();
+		return { session: toSession(row), segmentIndexOffset: segments.next_segment_index, timeOffsetMs: row.duration_ms };
+	}
+
 	async getNotionDatabase(): Promise<{ dataSourceId: string; title: string; titleProperty: string } | null> {
 		const row = this.ctx.storage.sql
 			.exec<{ data_source_id: string; title: string; title_property: string }>(
@@ -267,6 +341,38 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			database.title,
 			database.titleProperty,
 		);
+	}
+
+	async createMeetingPageForParent(session: VoiceSession): Promise<CreatedMeetingPage> {
+		if (!session.notionParentPageId) throw new Error('Notion parent page ID is required');
+		const parentPageId = session.notionParentPageId;
+		const existing = this.ctx.storage.sql
+			.exec<{ page_id: string; page_url: string | null }>(
+				'SELECT page_id, page_url FROM notion_parent_pages WHERE parent_page_id = ?',
+				parentPageId,
+			)
+			.toArray()[0];
+		if (existing) return { pageId: existing.page_id, pageUrl: existing.page_url };
+
+		const pending = this.meetingPageCreations.get(parentPageId);
+		if (pending) return pending;
+
+		const creation = (async () => {
+			const page = await createMeetingPage(this.env, session);
+			this.ctx.storage.sql.exec(
+				'INSERT INTO notion_parent_pages (parent_page_id, page_id, page_url) VALUES (?, ?, ?)',
+				parentPageId,
+				page.pageId,
+				page.pageUrl,
+			);
+			return page;
+		})();
+		this.meetingPageCreations.set(parentPageId, creation);
+		try {
+			return await creation;
+		} finally {
+			this.meetingPageCreations.delete(parentPageId);
+		}
 	}
 
 	async markNotionPageCreating(
@@ -355,7 +461,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		}
 
 		this.ctx.storage.sql.exec(
-			"UPDATE sessions SET state = 'recording', started_at = ? WHERE session_id = ?",
+			"UPDATE sessions SET state = 'recording', started_at = COALESCE(started_at, ?) WHERE session_id = ?",
 			new Date().toISOString(),
 			sessionId,
 		);
@@ -482,7 +588,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		try {
 			let session = toSession(this.findBySessionId(row.session_id)!);
 			if (!session.notionPageId) {
-				const page = await createMeetingPage(this.env, session);
+				const page = await this.createMeetingPageForParent(session);
 				this.ctx.storage.sql.exec(
 					'UPDATE sessions SET notion_page_id = ?, notion_page_url = ? WHERE session_id = ?',
 					page.pageId,

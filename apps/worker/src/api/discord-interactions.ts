@@ -1,6 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
-import { createMeetingPage, getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
+import { getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
@@ -168,6 +168,7 @@ async function executeCommand(
 			guildId: command.guildId,
 			channelId: command.channelId,
 			sessionId: result.session.sessionId,
+			...(result.resumed ? { resume: { segmentIndexOffset: result.segmentIndexOffset ?? 0, timeOffsetMs: result.timeOffsetMs ?? 0 } } : {}),
 		});
 
 		let notionPageUrl = result.session.notionPageUrl;
@@ -181,7 +182,9 @@ async function executeCommand(
 				if (!creating.claimed) {
 					notionPageUrl = creating.session.notionPageUrl;
 				} else {
-					const page = await createMeetingPage(env, creating.session);
+					const page = await env.VOICE_CHANNEL_SESSION.getByName(`notion-parent:${notionParentPageId}`).createMeetingPageForParent(
+						creating.session,
+					);
 					const savedPage = await session.setNotionPage(result.session.sessionId, page.pageId, page.pageUrl);
 					if (!savedPage.ok) {
 						throw new Error(`Could not save Notion page ID: ${savedPage.code}`);
@@ -208,9 +211,10 @@ async function executeCommand(
 			: notionPageCreationFailed
 				? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
 				: ' Notionページは録音終了後に更新します。';
+		const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
 		return queued.gatewayConnected
-			? `録音の開始要求を送信しました: <#${command.channelId}>${notionMessage}`
-			: `開始要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
+			? `${action}: <#${command.channelId}>${notionMessage}`
+			: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
 	}
 
 	if (command.action === 'notion_retry') {

@@ -6,7 +6,11 @@ type BaseGatewayCommand = {
 };
 
 export type GatewayCommand = BaseGatewayCommand &
-	({ action: 'start' | 'stop' } | { action: 'imakita'; applicationId: string; interactionToken: string });
+	(
+		| { action: 'start'; resume?: { segmentIndexOffset: number; timeOffsetMs: number } }
+		| { action: 'stop' }
+		| { action: 'imakita'; applicationId: string; interactionToken: string }
+	);
 
 type ControlMessage =
 	| { type: 'authenticated' }
@@ -258,8 +262,20 @@ function isGatewayCommand(value: unknown): value is GatewayCommand {
 	if (!hasSessionIdentity) {
 		return false;
 	}
-	if (value.action === 'start' || value.action === 'stop') {
-		return true;
+	if (value.action === 'start') {
+		if (value.resume === undefined) return true;
+		return (
+			isRecord(value.resume) &&
+			typeof value.resume.segmentIndexOffset === 'number' &&
+			Number.isSafeInteger(value.resume.segmentIndexOffset) &&
+			value.resume.segmentIndexOffset >= 0 &&
+			typeof value.resume.timeOffsetMs === 'number' &&
+			Number.isSafeInteger(value.resume.timeOffsetMs) &&
+			value.resume.timeOffsetMs >= 0
+		);
+	}
+	if (value.action === 'stop') {
+		return value.resume === undefined;
 	}
 	return (
 		value.action === 'imakita' &&
