@@ -25,29 +25,11 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: services/asr/uv.lock
+      - name: Check formatting
+        run: pnpm fmt:check
 
-      - name: Set up Python 3.13
-        run: uv python install 3.13
-
-      - name: Install Python dependencies
-        run: uv sync --locked --directory services/asr
-
-      - name: Check TypeScript formatting
-        run: pnpm fmt:check:ts
-
-      - name: Check Python formatting
-        run: pnpm fmt:check:python
-
-      - name: Lint TypeScript
-        run: pnpm lint:ts
-
-      - name: Lint Python
-        run: pnpm lint:python
+      - name: Lint
+        run: pnpm lint
 
   deploy-worker:
     name: Deploy Worker
