@@ -1,6 +1,6 @@
 import { appendFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AsrApi, AsrSegmentMetadata, AsrSession, AsrTranscription } from './asr-api.ts';
+import type { TranscriptionApi, TranscriptionSegmentMetadata, TranscriptionSession, TranscriptionResult } from './transcription-api.ts';
 
 const SAMPLE_RATE = 16_000;
 const BYTES_PER_SAMPLE = 4;
@@ -11,14 +11,14 @@ const MAX_SPEAKERS = 32;
 const MAX_QUEUED_SEGMENTS = 32;
 
 type SpeakerBuffer = { startSample: number; endSample: number; parts: Buffer[] };
-type PendingSegment = AsrSegmentMetadata & { audio: Buffer; persisted: Promise<void> };
-export type AsrTranscriptSegment = AsrSegmentMetadata & AsrTranscription;
-export type MeetingTranscription = AsrTranscription & { segments: AsrTranscriptSegment[] };
+type PendingSegment = TranscriptionSegmentMetadata & { audio: Buffer; persisted: Promise<void> };
+export type TranscriptionSegment = TranscriptionSegmentMetadata & TranscriptionResult;
+export type MeetingTranscription = TranscriptionResult & { segments: TranscriptionSegment[] };
 
-export class AsrSegmenter {
+export class TranscriptionSegmenter {
 	private readonly speakers = new Map<string, SpeakerBuffer>();
 	private readonly queue: PendingSegment[] = [];
-	private readonly completedSegments: AsrTranscriptSegment[] = [];
+	private readonly completedSegments: TranscriptionSegment[] = [];
 	private nextSegmentIndex: number;
 	private readonly timeOffsetMs: number;
 	private workerPromise: Promise<void> | undefined;
@@ -26,17 +26,17 @@ export class AsrSegmenter {
 	private finished = false;
 	private finalResult: MeetingTranscription | undefined;
 
-	private readonly asrApi: Pick<AsrApi, 'transcribeWav'>;
+	private readonly transcriptionApi: Pick<TranscriptionApi, 'transcribeWav'>;
 	private readonly recordingDir: string;
-	private readonly session: AsrSession;
+	private readonly session: TranscriptionSession;
 
 	constructor(
-		asrApi: Pick<AsrApi, 'transcribeWav'>,
+		transcriptionApi: Pick<TranscriptionApi, 'transcribeWav'>,
 		recordingDir: string,
-		session: AsrSession,
+		session: TranscriptionSession,
 		resume: { segmentIndexOffset: number; timeOffsetMs: number } = { segmentIndexOffset: 0, timeOffsetMs: 0 },
 	) {
-		this.asrApi = asrApi;
+		this.transcriptionApi = transcriptionApi;
 		this.recordingDir = recordingDir;
 		this.session = session;
 		this.nextSegmentIndex = resume.segmentIndexOffset;
@@ -116,7 +116,7 @@ export class AsrSegmenter {
 		return formatTranscript(this.sortedSegments());
 	}
 
-	private sortedSegments(): AsrTranscriptSegment[] {
+	private sortedSegments(): TranscriptionSegment[] {
 		return [...this.completedSegments].sort((a, b) => a.startMs - b.startMs || a.index - b.index);
 	}
 
@@ -131,7 +131,8 @@ export class AsrSegmenter {
 			endMs: samplesToMs(buffer.endSample),
 			audio: encodePcm16Wav(Buffer.concat(buffer.parts)),
 		};
-		if (this.queue.length >= MAX_QUEUED_SEGMENTS && !this.finished) this.fail(new Error('ASR is falling behind the live audio stream'));
+		if (this.queue.length >= MAX_QUEUED_SEGMENTS && !this.finished)
+			this.fail(new Error('Transcription is falling behind the live audio stream'));
 		// Retain the triggering chunk and all buffered tails on disk even after a failure.
 		const { audio, ...metadata } = segment;
 		const prefix = this.pendingPrefix(metadata.index);
@@ -154,7 +155,7 @@ export class AsrSegmenter {
 			try {
 				await persisted;
 				if (this.failure) continue;
-				const transcription = await this.asrApi.transcribeWav(this.session, audio, metadata);
+				const transcription = await this.transcriptionApi.transcribeWav(this.session, audio, metadata);
 				const result = { ...metadata, ...transcription };
 				await appendFile(join(this.recordingDir, 'transcription-segments.jsonl'), `${JSON.stringify(result)}\n`, 'utf8');
 				this.completedSegments.push(result);
@@ -178,7 +179,7 @@ export class AsrSegmenter {
 	}
 }
 
-function formatTranscript(segments: AsrTranscriptSegment[]): string {
+function formatTranscript(segments: TranscriptionSegment[]): string {
 	return segments
 		.filter((segment) => segment.text.trim())
 		.map((segment) => {

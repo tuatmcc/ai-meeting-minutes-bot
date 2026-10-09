@@ -1,19 +1,19 @@
-export type AsrTranscription = {
+export type TranscriptionResult = {
 	model: string;
 	language: string | null;
 	text: string;
 };
 
-export type AsrSegmentMetadata = {
+export type TranscriptionSegmentMetadata = {
 	index: number;
 	speakerId: string;
 	startMs: number;
 	endMs: number;
 };
 
-export type AsrSession = { guildId: string; channelId: string; sessionId: string };
+export type TranscriptionSession = { guildId: string; channelId: string; sessionId: string };
 
-export class AsrApi {
+export class TranscriptionApi {
 	private readonly workerApiUrl: string;
 	private readonly apiToken: string;
 	private readonly request: typeof fetch;
@@ -30,7 +30,7 @@ export class AsrApi {
 		this.delay = delay;
 	}
 
-	async transcribeWav(session: AsrSession, audio: Buffer, metadata: AsrSegmentMetadata): Promise<AsrTranscription> {
+	async transcribeWav(session: TranscriptionSession, audio: Buffer, metadata: TranscriptionSegmentMetadata): Promise<TranscriptionResult> {
 		const url = new URL(
 			`/api/v1/guilds/${session.guildId}/voice-channels/${session.channelId}/sessions/${session.sessionId}/transcribe`,
 			this.workerApiUrl,
@@ -71,13 +71,13 @@ export class AsrApi {
 				await this.delay(1000 * 2 ** attempt);
 				continue;
 			}
-			if (!isAsrTranscription(body)) throw new Error('Worker transcription returned an invalid response');
+			if (!isTranscriptionResult(body)) throw new Error('Worker transcription returned an invalid response');
 			return body;
 		}
 	}
 }
 
-function isAsrTranscription(value: unknown): value is AsrTranscription {
+function isTranscriptionResult(value: unknown): value is TranscriptionResult {
 	if (typeof value !== 'object' || value === null) return false;
 	const body = value as Record<string, unknown>;
 	return typeof body.model === 'string' && (body.language === null || typeof body.language === 'string') && typeof body.text === 'string';

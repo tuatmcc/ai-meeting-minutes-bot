@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AsrApi } from './asr-api.ts';
+import { TranscriptionApi } from './transcription-api.ts';
 
 const session = { guildId: '1', channelId: '2', sessionId: 'meeting' };
 const metadata = { index: 7, speakerId: '123', startMs: 10, endMs: 1010 };
@@ -20,7 +20,7 @@ void test('retries network failures, 429, and 5xx with identical request identit
 		if (requests.length === 3) return new Response('', { status: 503 });
 		return Response.json(result);
 	};
-	const api = new AsrApi('https://worker.example', 'token', request, async (ms) => {
+	const api = new TranscriptionApi('https://worker.example', 'token', request, async (ms) => {
 		delays.push(ms);
 	});
 	assert.deepEqual(await api.transcribeWav(session, Buffer.from('audio'), metadata), result);
@@ -50,7 +50,11 @@ void test('retries interrupted response body with the same segment index', async
 		return Response.json(result);
 	};
 	assert.deepEqual(
-		await new AsrApi('https://worker.example', 'token', request, async () => {}).transcribeWav(session, Buffer.from('audio'), metadata),
+		await new TranscriptionApi('https://worker.example', 'token', request, async () => {}).transcribeWav(
+			session,
+			Buffer.from('audio'),
+			metadata,
+		),
 		result,
 	);
 	assert.equal(attempts, 2);
@@ -64,7 +68,7 @@ void test('does not retry permanent 4xx errors and caps retryable failures at fo
 			return new Response('', { status });
 		};
 		await assert.rejects(
-			new AsrApi('https://worker.example', 'token', request, async () => {}).transcribeWav(session, Buffer.alloc(0), metadata),
+			new TranscriptionApi('https://worker.example', 'token', request, async () => {}).transcribeWav(session, Buffer.alloc(0), metadata),
 			new RegExp(`HTTP ${status}`),
 		);
 		assert.equal(attempts, status === 400 ? 1 : 4);

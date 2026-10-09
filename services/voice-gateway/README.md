@@ -1,6 +1,6 @@
 # Voice Gateway
 
-Discord Voice を受信するセルフホスト Node.js サービスです。音声認識は Cloudflare Workers AI の `@cf/openai/whisper-large-v3-turbo` を使用するため、GPU やローカル ASR サーバーは不要です。Discord の `/start`・`/stop`・`/imakita` は Worker が受け付け、gateway は外向き WebSocket で制御を受け取ります。
+Discord Voice を受信するセルフホスト Node.js サービスです。音声認識は Cloudflare Workers AI の `@cf/openai/whisper-large-v3-turbo` を使用するため、GPU やローカル文字起こしサーバーは不要です。Discord の `/start`・`/stop`・`/imakita` は Worker が受け付け、gateway は外向き WebSocket で制御を受け取ります。
 
 ## 動作
 
@@ -42,6 +42,6 @@ docker compose -f compose.yaml up -d --build
 docker compose -f compose.yaml logs -f voice-gateway
 ```
 
-Compose は既存の外部ネットワーク `server_default` に参加します。存在しない場合は `docker network create server_default` で作成してください。ローカル ASR 用のネットワークは不要です。
+Compose は既存の外部ネットワーク `server_default` に参加します。存在しない場合は `docker network create server_default` で作成してください。文字起こし用ネットワークは不要です。
 
 録音データのディレクトリは named volume `recordings` に保存します。コンテナを作り直しても未確定の WAV とチェックポイントを保持します。停止は `docker compose -f compose.yaml down` を使用し、失敗時のデータが必要な間は `down -v` で volume を削除しないでください。

@@ -2,7 +2,7 @@
 
 Cloudflare WorkerはDiscordの `meeting_` プレフィックス付き `/meeting_start`・`/meeting_stop`・`/meeting_status`・`/meeting_imakita`・`/meeting_notion_retry`・`/meeting_link_notion_db` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
-各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル ASR サーバーは不要です。
+各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル文字起こしサーバーは不要です。
 
 音声は推論前に R2 へ保存し、成功した文字起こし結果はセッションの SQLite に保存します。成功後の音声は削除し、推論に失敗した音声は R2 に残します。同じ chunk を同じ区間番号で再送すると保存済み結果を返します。gateway は録音と並行して送信し、各リクエストで結果を受け取ります。Cloudflare Queues は使用しません。最終的な文字起こしと録音メタデータを含む manifest も R2 に保存します。Worker は manifest 用の短命な PUT 署名付き URL を発行し、gateway へ R2 API キーを渡しません。
 
@@ -18,7 +18,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。まず管理者が `/meeting_link_notion_db database:` で、このVCに対応するNotion議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。`/meeting_link_notion_db` はサーバー管理権限が必要です。`/meeting_imakita` はASRが確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。まず管理者が `/meeting_link_notion_db database:` で、このVCに対応するNotion議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。`/meeting_link_notion_db` はサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/meeting_status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 
