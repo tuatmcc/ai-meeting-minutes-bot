@@ -3,8 +3,8 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import type { AsrSegmentMetadata } from './asr-api.ts';
-import { AsrSegmenter } from './asr-segmenter.ts';
+import type { TranscriptionSegmentMetadata } from './transcription-api.ts';
+import { TranscriptionSegmenter } from './transcription-segmenter.ts';
 
 const session = { guildId: '1', channelId: '2', sessionId: 'meeting' };
 function audio(seconds: number, value = 0.1): Buffer {
@@ -16,8 +16,8 @@ function audio(seconds: number, value = 0.1): Buffer {
 async function fixture(t: TestContext) {
 	const directory = await mkdtemp(join(tmpdir(), 'gateway-test-'));
 	t.after(() => rm(directory, { recursive: true, force: true }));
-	const calls: Array<AsrSegmentMetadata & { wav: Buffer }> = [];
-	const segmenter = new AsrSegmenter(
+	const calls: Array<TranscriptionSegmentMetadata & { wav: Buffer }> = [];
+	const segmenter = new TranscriptionSegmenter(
 		{
 			transcribeWav: async (_session, wav, metadata) => {
 				calls.push({ ...metadata, wav });
@@ -105,9 +105,9 @@ void test('silent audio does not create hallucination-prone chunks', async (t) =
 	assert.equal(calls.length, 0);
 });
 
-void test('failed ASR retains audio and metadata for every pending chunk and rejects finish', async (t) => {
+void test('failed transcription retains audio and metadata for every pending chunk and rejects finish', async (t) => {
 	const { directory } = await fixture(t);
-	const segmenter = new AsrSegmenter(
+	const segmenter = new TranscriptionSegmenter(
 		{
 			transcribeWav: async () => {
 				throw new Error('upstream unavailable');
@@ -134,7 +134,7 @@ void test('overload fails explicitly and retains the triggering chunk instead of
 	const blocked = new Promise<void>((resolve) => {
 		release = resolve;
 	});
-	const segmenter = new AsrSegmenter(
+	const segmenter = new TranscriptionSegmenter(
 		{
 			transcribeWav: async () => {
 				await blocked;

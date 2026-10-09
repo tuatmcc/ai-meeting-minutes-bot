@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
 import { loadConfig } from './config.ts';
-import { AsrApi } from './clients/asr-api.ts';
-import { AsrSegmenter, type MeetingTranscription } from './clients/asr-segmenter.ts';
+import { TranscriptionApi } from './clients/transcription-api.ts';
+import { TranscriptionSegmenter, type MeetingTranscription } from './clients/transcription-segmenter.ts';
 import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
 import { uploadToR2 } from './clients/r2-upload.ts';
 import { SessionApi, type SessionResumeInfo } from './clients/session-api.ts';
@@ -14,7 +14,7 @@ type ActiveRecording = {
 	command: GatewayCommand;
 	connection: VoiceConnection;
 	recorder: VoiceRecorder;
-	asrSegmenter: AsrSegmenter;
+	transcriptionSegmenter: TranscriptionSegmenter;
 	resumeInfo?: SessionResumeInfo;
 	stopPromise?: Promise<void>;
 	failureToRecord?: string;
@@ -22,7 +22,7 @@ type ActiveRecording = {
 
 const config = loadConfig();
 const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
-const asrApi = new AsrApi(config.workerApiUrl, config.workerApiToken);
+const transcriptionApi = new TranscriptionApi(config.workerApiUrl, config.workerApiToken);
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
@@ -60,7 +60,7 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 
 	let connection: VoiceConnection | undefined;
 	let recorder: VoiceRecorder | undefined;
-	let asrSegmenter: AsrSegmenter | undefined;
+	let transcriptionSegmenter: TranscriptionSegmenter | undefined;
 	try {
 		const guild = await client.guilds.fetch(command.guildId);
 		const channel = await guild.channels.fetch(command.channelId);
@@ -99,11 +99,11 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 			connection.receiver,
 			config.recordingsDir,
 			command.sessionId,
-			(speakerId, startMs, pcm) => asrSegmenter?.addAudio(speakerId, startMs, pcm),
-			(elapsedMs) => asrSegmenter?.flushSilent(elapsedMs),
+			(speakerId, startMs, pcm) => transcriptionSegmenter?.addAudio(speakerId, startMs, pcm),
+			(elapsedMs) => transcriptionSegmenter?.flushSilent(elapsedMs),
 		);
-		asrSegmenter = new AsrSegmenter(
-			asrApi,
+		transcriptionSegmenter = new TranscriptionSegmenter(
+			transcriptionApi,
 			join(config.recordingsDir, command.sessionId),
 			{
 				guildId: command.guildId,
@@ -115,7 +115,7 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 		await sessionApi.markRecordingStarted(command.guildId, command.channelId, command.sessionId);
 		recorder.start();
 
-		activeRecordings.set(command.sessionId, { command, connection, recorder, asrSegmenter, resumeInfo });
+		activeRecordings.set(command.sessionId, { command, connection, recorder, transcriptionSegmenter, resumeInfo });
 		console.log(`[recording] started: ${command.sessionId}`);
 	} catch (error) {
 		if (recorder) {
@@ -123,7 +123,7 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 				console.error('[recording] cleanup after startup failure failed', stopError);
 			});
 		}
-		await asrSegmenter?.finish().catch(() => undefined);
+		await transcriptionSegmenter?.finish().catch(() => undefined);
 		connection?.destroy();
 		throw error;
 	}
@@ -146,14 +146,14 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 	}
 
 	const stopPromise = (async () => {
-		const { command, recorder, asrSegmenter, connection } = recording;
+		const { command, recorder, transcriptionSegmenter, connection } = recording;
 		let failSessionRecorded = false;
 		try {
 			const result = await recorder.stop().catch(async (error: unknown) => {
-				await asrSegmenter.finish().catch(() => undefined);
+				await transcriptionSegmenter.finish().catch(() => undefined);
 				throw error;
 			});
-			const currentTranscription = await asrSegmenter.finish();
+			const currentTranscription = await transcriptionSegmenter.finish();
 			const transcription = recording.resumeInfo
 				? mergeTranscriptions(recording.resumeInfo.manifest.transcription, currentTranscription)
 				: currentTranscription;
@@ -229,7 +229,7 @@ async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
 			content = 'このVCの録音が見つかりません。';
 		} else {
 			try {
-				const transcript = recording.asrSegmenter.getSnapshot();
+				const transcript = recording.transcriptionSegmenter.getSnapshot();
 				const summary = await sessionApi.summarizeTranscript(command.guildId, command.channelId, command.sessionId, transcript);
 				content = '**今北産業**\n' + summary;
 				if (content.length > 1_900) {

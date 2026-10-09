@@ -1,6 +1,6 @@
 # AI Meeting Minutes Bot
 
-Discord 上の会議音声を文字起こしし、Workers AI で議事録を作成して Notion に保存するプロジェクトです。Discord Voice を受信する gateway だけをセルフホストし、音声認識・セッション管理・議事録生成は Cloudflare に載せます。GPU やローカル ASR サーバーは不要です。
+Discord 上の会議音声を文字起こしし、Workers AI で議事録を作成して Notion に保存するプロジェクトです。Discord Voice を受信する gateway だけをセルフホストし、音声認識・セッション管理・議事録生成は Cloudflare に載せます。GPU やローカル文字起こしサーバーは不要です。
 
 ## 構成
 
@@ -47,7 +47,7 @@ docker compose -f services/voice-gateway/compose.yaml up -d --build
 docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
 ```
 
-ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。ASR コンテナや GPU の設定は不要です。
+ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。文字起こし用コンテナや GPU の設定は不要です。
 
 未送信・未確定の WAV とチェックポイントは Docker volume に保存されます。成功後に一時データを削除し、失敗時は調査・再送用に残します。Worker も推論前に音声を R2 に保存し、成功後に削除します。コンテナの再起動だけで録音や失敗セッションを自動復旧する構成ではありません。
 

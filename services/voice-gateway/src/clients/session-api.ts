@@ -1,4 +1,4 @@
-import type { MeetingTranscription } from './asr-segmenter.ts';
+import type { MeetingTranscription } from './transcription-segmenter.ts';
 
 export type Session = {
 	sessionId: string;

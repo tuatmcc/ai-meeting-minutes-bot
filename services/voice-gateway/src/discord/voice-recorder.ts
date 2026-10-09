@@ -41,7 +41,7 @@ export class VoiceRecorder {
 		private readonly receiver: VoiceReceiver,
 		private readonly sessionId: string,
 		private readonly outputDir: string,
-		private readonly onAsrAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
+		private readonly onTranscriptionAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
 		private readonly onSilenceTick?: (elapsedMs: number) => void,
 	) {}
 
@@ -49,12 +49,12 @@ export class VoiceRecorder {
 		receiver: VoiceReceiver,
 		outputDir: string,
 		sessionId: string,
-		onAsrAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
+		onTranscriptionAudio?: (speakerId: string, startMs: number, pcm: Buffer) => void,
 		onSilenceTick?: (elapsedMs: number) => void,
 	): Promise<VoiceRecorder> {
 		const sessionDir = join(outputDir, sessionId);
 		await mkdir(sessionDir, { recursive: true });
-		return new VoiceRecorder(receiver, sessionId, sessionDir, onAsrAudio, onSilenceTick);
+		return new VoiceRecorder(receiver, sessionId, sessionDir, onTranscriptionAudio, onSilenceTick);
 	}
 
 	start(): void {
@@ -115,7 +115,7 @@ export class VoiceRecorder {
 			this.stats.framesReceived += completeLength / FRAME_BYTES;
 			this.stats.bytesReceived += completeLength;
 			for (let offset = 0; offset < completeLength; offset += FRAME_BYTES) {
-				this.onAsrAudio?.(
+				this.onTranscriptionAudio?.(
 					activeStream.userId,
 					activeStream.firstFrameIndex * FRAME_DURATION_MS,
 					activeStream.encoder.encode48kStereoPcm16le(pcm.subarray(offset, offset + FRAME_BYTES)),

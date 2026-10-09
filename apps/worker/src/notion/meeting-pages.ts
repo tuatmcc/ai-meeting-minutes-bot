@@ -287,7 +287,7 @@ export async function publishMeetingToNotion(env: WorkerEnv, session: VoiceSessi
 		`- 開始: ${formatTimestamp(manifest.startedAt)} JST`,
 		`- 終了: ${formatTimestamp(manifest.endedAt)} JST`,
 		`- 録音時間: ${formatDuration(manifest.durationMs)}`,
-		`- ASRモデル: ${manifest.transcription.model}`,
+		`- 文字起こしモデル: ${manifest.transcription.model}`,
 		`- 言語: ${manifest.transcription.language ?? '不明'}`,
 		'',
 		'## 要約',
