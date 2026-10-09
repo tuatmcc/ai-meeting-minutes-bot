@@ -54,4 +54,4 @@ gatewayとWorkerのHTTP契約は [`../../packages/contracts/openapi.yaml`](../..
 
 `main` へのpush後、CIが成功するとWorkerをCloudflareへデプロイします。GitHubリポジトリのActions secretsに `CLOUDFLARE_ACCOUNT_ID` と `CLOUDFLARE_API_TOKEN` を登録してください。API tokenは対象アカウントに限定し、Workers Scriptsの編集権限を付与します。
 
-Workerの実行時secretやR2などのCloudflareリソースは、事前に本番環境へ設定してください。このworkflowはCloudflare Workerをデプロイします。voice-gateway はセルフホストし、[`../../services/voice-gateway/README.md`](../../services/voice-gateway/README.md) の Compose 手順で起動します。この workflow は gateway をデプロイしません。`services/asr` は実験用として残していますが、この構成では使用しません。
+Workerの実行時secretやR2などのCloudflareリソースは、事前に本番環境へ設定してください。このworkflowはCloudflare Workerをデプロイします。voice-gateway はセルフホストし、[`../../services/voice-gateway/README.md`](../../services/voice-gateway/README.md) の Compose 手順で起動します。この workflow は gateway をデプロイしません。

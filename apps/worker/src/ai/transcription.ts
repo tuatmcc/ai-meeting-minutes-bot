@@ -99,7 +99,7 @@ export async function transcribeAudio(env: WorkerEnv, audio: ArrayBuffer): Promi
 		audio: btoa(parts.join('')),
 		task: 'transcribe',
 		language: 'ja',
-		initial_prompt: 'MCC, Cloudflare, Workers AI, Notion, Qwen3-ASR, Discord, Durable Objects',
+		initial_prompt: 'MCC, Cloudflare, Workers AI, Notion, Discord, Durable Objects',
 		vad_filter: true,
 		condition_on_previous_text: false,
 	});

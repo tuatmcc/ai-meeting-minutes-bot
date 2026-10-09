@@ -6,7 +6,6 @@ Discord 上の会議音声を文字起こしし、Workers AI で議事録を作�
 
 - `services/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
 - `apps/worker`: Discord コマンド、Durable Objects によるセッション管理、Workers AI Whisper による文字起こし、AI 議事録生成と Notion 保存を提供します。
-- `services/asr`: Qwen3-ASR/vLLM の実験用サービスを残しています。通常の構成では使用しません。
 
 ```text
 セルフホスト Voice gateway
