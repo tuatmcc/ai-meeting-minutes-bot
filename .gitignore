@@ -4,11 +4,6 @@
 # JavaScript dependencies
 node_modules/
 
-# Python virtual environments and bytecode
-**/.venv/
-**/__pycache__/
-*.py[cod]
-
 # Local secrets and Cloudflare state
 .env*
 !.env.example

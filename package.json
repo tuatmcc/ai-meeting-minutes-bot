@@ -4,12 +4,9 @@
 	"scripts": {
 		"dev:worker": "pnpm --filter @ai-meeting-minutes/worker dev",
 		"deploy:worker": "pnpm --filter @ai-meeting-minutes/worker run deploy",
-		"fmt:ts": "oxfmt",
-		"fmt": "pnpm fmt:ts",
-		"fmt:check:ts": "oxfmt --check",
-		"fmt:check": "pnpm fmt:check:ts",
-		"lint:ts": "oxlint",
-		"lint": "pnpm lint:ts",
+		"fmt": "oxfmt",
+		"fmt:check": "oxfmt --check",
+		"lint": "oxlint",
 		"test:worker": "pnpm --filter @ai-meeting-minutes/worker test",
 		"typegen:worker": "pnpm --filter @ai-meeting-minutes/worker cf-typegen"
 	},
