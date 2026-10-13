@@ -9,13 +9,6 @@ services:
       - production.env
     volumes:
       - recordings:/app/services/voice-gateway/var/recordings
-    networks:
-      - server
-
-networks:
-  server:
-    external: true
-    name: server_default
 
 volumes:
   recordings:

@@ -42,6 +42,6 @@ docker compose -f compose.yaml up -d --build
 docker compose -f compose.yaml logs -f voice-gateway
 ```
 
-Compose は既存の外部ネットワーク `server_default` に参加します。存在しない場合は `docker network create server_default` で作成してください。文字起こし用ネットワークは不要です。
+Compose は既定ネットワークを使うため、Worker と同じコンテナネットワークを用意する必要はありません。
 
 録音データのディレクトリは named volume `recordings` に保存します。コンテナを作り直しても未確定の WAV とチェックポイントを保持します。停止は `docker compose -f compose.yaml down` を使用し、失敗時のデータが必要な間は `down -v` で volume を削除しないでください。
