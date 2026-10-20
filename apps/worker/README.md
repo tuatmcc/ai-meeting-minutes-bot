@@ -8,6 +8,8 @@ Cloudflare WorkerはDiscordの `/meeting`・`/meeting_start`・`/meeting_stop`�
 
 ## Discord設定
 
+コマンド・ボタン・選択操作の処理経路は [`Discord Interaction のフロー図`](../../docs/discord-interaction-flows.md) を参照してください。
+
 Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホスト>/interactions` に設定します。アプリケーションIDと公開鍵をWorker環境に設定し、`GATEWAY_CONTROL_TOKEN` にはvoice-gatewayと共有するランダムな値を設定します。Gatewayとの接続が切断されて録音が中断された場合、Workerは対象VCのチャットにエラー埋め込みを送信します。そのため、Workerにも `DISCORD_BOT_TOKEN` をsecretとして設定してください。
 
 DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal commandとして登録されます。Workflowで使うため、GitHub Actions secretsに `DISCORD_BOT_TOKEN` を登録してください。アプリケーションIDは `wrangler.jsonc` とGitHub Actionsの設定で同じ値を使います。
