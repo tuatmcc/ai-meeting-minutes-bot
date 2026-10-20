@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
 import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
 import { loadConfig } from './config.ts';
+import { logger as baseLogger } from './logger.ts';
 import { TranscriptionApi } from './clients/transcription-api.ts';
 import { TranscriptionSegmenter, type MeetingTranscription } from './clients/transcription-segmenter.ts';
 import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
@@ -21,6 +22,7 @@ type ActiveRecording = {
 };
 
 const config = loadConfig();
+const logger = baseLogger.child({ component: 'main' });
 const sessionApi = new SessionApi(config.workerApiUrl, config.workerApiToken);
 const transcriptionApi = new TranscriptionApi(config.workerApiUrl, config.workerApiToken);
 const client = new Client({
@@ -33,7 +35,7 @@ let shuttingDown = false;
 
 const clientReady = new Promise<void>((resolve) => {
 	client.once(Events.ClientReady, (readyClient) => {
-		console.log(`[discord] logged in as ${readyClient.user.tag}`);
+		logger.info({ userTag: readyClient.user.tag }, 'Discord client logged in');
 		resolve();
 	});
 });
@@ -41,14 +43,14 @@ const clientReady = new Promise<void>((resolve) => {
 async function startRecording(command: Extract<GatewayCommand, { action: 'start' }>): Promise<void> {
 	const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
 	if (!session || session.sessionId !== command.sessionId || (session.state !== 'starting' && session.state !== 'recording')) {
-		console.log(`[recording] stale start ignored: ${command.sessionId}`);
+		logger.info({ sessionId: command.sessionId, guildId: command.guildId, channelId: command.channelId }, 'Ignored stale recording start');
 		return;
 	}
 
 	const existingSession = activeRecordings.get(command.sessionId);
 	if (existingSession) {
 		if (sameSession(existingSession.command, command)) {
-			console.log(`[recording] duplicate start ignored: ${command.sessionId}`);
+			logger.info({ sessionId: command.sessionId }, 'Ignored duplicate recording start');
 			return;
 		}
 		throw new Error('Session ID is already active for a different voice channel');
@@ -86,14 +88,17 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 			selfMute: true,
 		});
 		connection.on('stateChange', (oldState, newState) => {
-			console.log(`[voice] ${oldState.status} -> ${newState.status} (${guild.id})`);
+			logger.info({ guildId: guild.id, oldState: oldState.status, newState: newState.status }, 'Voice connection state changed');
 		});
 		connection.on('error', (error) => {
-			console.error(`[voice] connection error (${guild.id})`, error);
+			logger.error({ err: error, guildId: guild.id }, 'Voice connection error');
 		});
 
 		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-		console.log(`[voice] connected to ${guild.name} / ${channel.name}`);
+		logger.info(
+			{ guildId: guild.id, guildName: guild.name, channelId: channel.id, channelName: channel.name },
+			'Connected to voice channel',
+		);
 
 		recorder = await VoiceRecorder.create(
 			connection.receiver,
@@ -116,11 +121,14 @@ async function startRecording(command: Extract<GatewayCommand, { action: 'start'
 		recorder.start();
 
 		activeRecordings.set(command.sessionId, { command, connection, recorder, transcriptionSegmenter, resumeInfo });
-		console.log(`[recording] started: ${command.sessionId}`);
+		logger.info(
+			{ sessionId: command.sessionId, guildId: command.guildId, channelId: command.channelId, resumed: Boolean(resumeInfo) },
+			'Recording started',
+		);
 	} catch (error) {
 		if (recorder) {
 			await recorder.stop().catch((stopError: unknown) => {
-				console.error('[recording] cleanup after startup failure failed', stopError);
+				logger.error({ err: stopError, sessionId: command.sessionId }, 'Recorder cleanup after startup failure failed');
 			});
 		}
 		await transcriptionSegmenter?.finish().catch(() => undefined);
@@ -158,7 +166,15 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 				? mergeTranscriptions(recording.resumeInfo.manifest.transcription, currentTranscription)
 				: currentTranscription;
 			const durationMs = (recording.resumeInfo?.manifest.durationMs ?? 0) + result.durationMs;
-			console.log(`[recording] captured ${result.stats.framesReceived} frames (${result.durationMs}ms) for ${command.sessionId}`);
+			logger.info(
+				{
+					sessionId: command.sessionId,
+					framesReceived: result.stats.framesReceived,
+					bytesReceived: result.stats.bytesReceived,
+					durationMs: result.durationMs,
+				},
+				'Audio capture completed',
+			);
 			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
 			const manifestPath = join(result.sessionDir, 'manifest.json');
 			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
@@ -189,12 +205,12 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 				durationMs,
 				manifestSizeBytes,
 			});
-			console.log(`[transcription] saved to R2: ${command.sessionId} (${transcription.model})`);
+			logger.info({ sessionId: command.sessionId, model: transcription.model }, 'Transcription saved to R2');
 			await rm(result.sessionDir, { recursive: true, force: true }).catch((error: unknown) => {
-				console.warn('[recording] could not remove local temporary files', error);
+				logger.warn({ err: error, sessionId: command.sessionId }, 'Could not remove local temporary files');
 			});
 		} catch (error) {
-			console.error(`[recording] finalization failed: ${command.sessionId}`, error);
+			logger.error({ err: error, sessionId: command.sessionId }, 'Recording finalization failed');
 			try {
 				await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'recording_finalize_failed');
 				failSessionRecorded = true;
@@ -236,7 +252,7 @@ async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
 					content = content.slice(0, 1_897) + '…';
 				}
 			} catch (error) {
-				console.error('[imakita] summary failed', error instanceof Error ? error.name : 'unknown error');
+				logger.error({ err: error, sessionId: command.sessionId }, 'Summary generation failed');
 				content = '要約を作成できませんでした。文字起こしの確定後にもう一度お試しください。';
 			}
 		}
@@ -248,7 +264,7 @@ async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
 		try {
 			await startRecording(command);
 		} catch (error) {
-			console.error(`[recording] startup failed: ${command.sessionId}`, error);
+			logger.error({ err: error, sessionId: command.sessionId }, 'Recording startup failed');
 			await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'recording_start_failed');
 		}
 		return;
@@ -256,7 +272,7 @@ async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
 
 	const recording = activeRecordings.get(command.sessionId);
 	if (!recording || !sameSession(recording.command, command)) {
-		console.log(`[recording] duplicate or stale stop ignored: ${command.sessionId}`);
+		logger.info({ sessionId: command.sessionId }, 'Ignored duplicate or stale recording stop');
 		const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
 		if (session?.sessionId === command.sessionId && (session.state === 'starting' || session.state === 'recording')) {
 			await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'gateway_recording_missing');
@@ -277,10 +293,10 @@ async function editDiscordInteraction(applicationId: string, token: string, cont
 			},
 		);
 		if (!response.ok) {
-			console.error('[imakita] Discord response update failed (' + response.status + ')');
+			logger.error({ statusCode: response.status }, 'Discord response update failed');
 		}
 	} catch (error) {
-		console.error('[imakita] Discord response update failed', error instanceof Error ? error.name : 'unknown error');
+		logger.error({ err: error }, 'Discord response update failed');
 	}
 }
 
@@ -298,7 +314,7 @@ function mergeTranscriptions(previous: MeetingTranscription, current: MeetingTra
 }
 
 client.on(Events.Error, (error) => {
-	console.error('[discord] client error', error);
+	logger.error({ err: error }, 'Discord client error');
 });
 
 await client.login(config.token);
@@ -312,24 +328,26 @@ async function shutdown(): Promise<void> {
 		return;
 	}
 	shuttingDown = true;
+	logger.info({ activeRecordingCount: activeRecordings.size }, 'Shutting down voice gateway');
 	try {
 		await gatewayControl?.stop();
 		await gatewayControlTask;
 		await Promise.all([...activeRecordings.values()].map((recording) => stopRecording(recording)));
 	} finally {
 		await client.destroy();
+		logger.info('Voice gateway shutdown complete');
 	}
 }
 
 process.once('SIGINT', () => {
 	void shutdown().catch((error: unknown) => {
-		console.error('[shutdown] failed', error);
+		logger.error({ err: error }, 'Shutdown failed');
 		process.exitCode = 1;
 	});
 });
 process.once('SIGTERM', () => {
 	void shutdown().catch((error: unknown) => {
-		console.error('[shutdown] failed', error);
+		logger.error({ err: error }, 'Shutdown failed');
 		process.exitCode = 1;
 	});
 });
