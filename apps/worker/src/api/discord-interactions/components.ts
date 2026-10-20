@@ -72,7 +72,7 @@ export async function handleComponentInteraction(
 			return Response.json({ type: 6 });
 		}
 		case 'meeting_setup_cancel':
-			ctx.waitUntil(showMeetingMessage(interaction, componentContext, env));
+			ctx.waitUntil(showMeetingMessage(interaction, env));
 			return Response.json({ type: 6 });
 		default:
 			return interactionMessage('この操作には対応していません。');
@@ -167,11 +167,7 @@ async function showNotionPagePicker(
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
 	const database = selectedDatabase ?? (await session.getNotionDatabase());
 	if (!database) {
-		await editOriginalResponse(
-			env.DISCORD_APPLICATION_ID,
-			interaction.token,
-			meetingMessage(componentContext.channelId, null, 'この VC の議事録 DB が未設定です。'),
-		);
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage('この VC の議事録 DB が未設定です。'));
 		return;
 	}
 	try {
@@ -195,9 +191,7 @@ async function showNotionPagePicker(
 	}
 }
 
-async function showMeetingMessage(interaction: DiscordInteraction, componentContext: ComponentContext, env: WorkerEnv): Promise<void> {
+async function showMeetingMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
-	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
-	const database = await session.getNotionDatabase();
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage(componentContext.channelId, database));
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage());
 }

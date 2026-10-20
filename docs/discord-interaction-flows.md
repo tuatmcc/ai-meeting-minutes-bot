@@ -35,7 +35,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["/meeting"] --> B["VC の保存先を表示"]
+    A["/meeting"] --> B["保存方法を選ぶ画面を表示"]
     B -->|Notion を設定| C{"サーバー管理権限があるか"}
     C -->|いいえ| X["権限エラー"]
     C -->|はい| D["Notion DB 候補を表示"]

@@ -30,11 +30,7 @@ export function commandMessageAsComponentsV2(message: CommandMessage): RESTPatch
 	};
 }
 
-export function meetingMessage(
-	channelId: string,
-	database: { title: string } | null,
-	notice?: string,
-): RESTPatchAPIInteractionOriginalResponseJSONBody {
+export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	return {
 		flags: MessageFlags.IsComponentsV2,
 		components: [
@@ -47,10 +43,6 @@ export function meetingMessage(
 						content: '## 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
 					},
 					...(notice ? [{ type: ComponentType.TextDisplay as const, content: `✅ ${notice}` }] : []),
-					{
-						type: ComponentType.TextDisplay,
-						content: `**現在の VC**\n<#${channelId}>\n\n**保存先**\n${database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？'}`,
-					},
 					{ type: ComponentType.Separator, spacing: SeparatorSpacingSize.Small },
 					{
 						type: ComponentType.Section,

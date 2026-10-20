@@ -79,7 +79,7 @@ export async function processCommand(
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	switch (command.action) {
 		case 'meeting':
-			return showMeetingSetup(command, env);
+			return meetingMessage();
 		case 'link_notion_db':
 			return configureNotionDatabase(command, env);
 		case 'start':
@@ -97,12 +97,6 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 			return unreachable;
 		}
 	}
-}
-
-async function showMeetingSetup(command: ParsedCommand, env: WorkerEnv): Promise<CommandMessage> {
-	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
-	const database = await session.getNotionDatabase();
-	return meetingMessage(command.channelId, database);
 }
 
 async function configureNotionDatabase(command: ParsedCommand, env: WorkerEnv): Promise<CommandMessage> {
