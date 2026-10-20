@@ -1,3 +1,4 @@
+import { ButtonStyle, ComponentType, MessageFlags, SeparatorSpacingSize } from 'discord-api-types/v10';
 import type { APIEmbed, APIInteractionResponse, RESTPatchAPIInteractionOriginalResponseJSONBody } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
@@ -164,31 +165,54 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 	if (command.action === 'meeting') {
 		const database = await session.getNotionDatabase();
 		return {
-			embeds: [
-				{
-					title: '議事録 Bot へようこそ',
-					description: 'この Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
-					color: 0x5865f2,
-					fields: [
-						{ name: '現在の VC', value: `<#${command.channelId}>` },
-						{
-							name: '保存先',
-							value: database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？',
-						},
-						{
-							name: 'Notion に議事録を保存',
-							value: '指定したデータベースに会議ごとの議事録を自動作成します。DB設定には `/meeting_link_notion_db` を使います。',
-						},
-						{ name: 'Discord だけで使う', value: '議事録を Discord に投稿します。Notion は後から連携できます。' },
-					],
-				},
-			],
+			flags: MessageFlags.IsComponentsV2,
 			components: [
 				{
-					type: 1,
+					type: ComponentType.Container,
+					accent_color: 0x5865f2,
 					components: [
-						{ type: 2, style: 2, label: 'Notion に議事録を保存', custom_id: 'meeting_setup_notion', emoji: { name: '📖' } },
-						{ type: 2, style: 2, label: 'Discord だけで使う', custom_id: 'meeting_setup_discord', emoji: { name: '💬' } },
+						{
+							type: ComponentType.TextDisplay,
+							content: '# 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
+						},
+						{
+							type: ComponentType.TextDisplay,
+							content: `**現在の VC**\n<#${command.channelId}>\n\n**保存先**\n${database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？'}`,
+						},
+						{ type: ComponentType.Separator, spacing: SeparatorSpacingSize.Small },
+						{
+							type: ComponentType.Section,
+							components: [
+								{
+									type: ComponentType.TextDisplay,
+									content:
+										'**Notion に議事録を保存**\n指定したデータベースに会議ごとの議事録を自動作成します。DB設定には `/meeting_link_notion_db` を使います。',
+								},
+							],
+							accessory: {
+								type: ComponentType.Button,
+								style: ButtonStyle.Secondary,
+								label: 'Notion に議事録を保存',
+								custom_id: 'meeting_setup_notion',
+								emoji: { name: '📖' },
+							},
+						},
+						{
+							type: ComponentType.Section,
+							components: [
+								{
+									type: ComponentType.TextDisplay,
+									content: '**Discord だけで使う**\n議事録を Discord に投稿します。Notion は後から連携できます。',
+								},
+							],
+							accessory: {
+								type: ComponentType.Button,
+								style: ButtonStyle.Secondary,
+								label: 'Discord だけで使う',
+								custom_id: 'meeting_setup_discord',
+								emoji: { name: '💬' },
+							},
+						},
 					],
 				},
 			],
