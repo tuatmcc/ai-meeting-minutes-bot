@@ -1,6 +1,6 @@
 packages:
   - apps/worker
-  - services/voice-gateway
+  - apps/voice-gateway
 
 allowBuilds:
   esbuild: true

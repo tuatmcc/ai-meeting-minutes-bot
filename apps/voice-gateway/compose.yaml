@@ -2,13 +2,13 @@ services:
   voice-gateway:
     build:
       context: ../..
-      dockerfile: services/voice-gateway/Dockerfile
+      dockerfile: apps/voice-gateway/Dockerfile
     restart: unless-stopped
     init: true
     env_file:
       - production.env
     volumes:
-      - recordings:/app/services/voice-gateway/var/recordings
+      - recordings:/app/apps/voice-gateway/var/recordings
 
 volumes:
   recordings:

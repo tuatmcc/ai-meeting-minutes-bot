@@ -4,7 +4,7 @@ set -euo pipefail
 service_name=ai-meeting-minutes-voice-gateway.service
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../.." && pwd)"
-gateway_dir="$repo_root/services/voice-gateway"
+gateway_dir="$repo_root/apps/voice-gateway"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 config_dir="$config_home/ai-meeting-minutes-voice-gateway"

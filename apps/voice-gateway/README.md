@@ -26,14 +26,14 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 - `WORKER_API_URL`: Worker のベース URL。制御は同じホストの `/api/v1/gateway-control/connect` に WebSocket 接続します。
 - `WORKER_API_TOKEN`: Worker の `GATEWAY_API_TOKEN` と同じ値
 - `WORKER_CONTROL_TOKEN`: Worker の `GATEWAY_CONTROL_TOKEN` と同じ値
-- `RECORDINGS_DIR`: WAV・manifest・チェックポイントの保存先。デフォルトは `services/voice-gateway/var/recordings`
+- `RECORDINGS_DIR`: WAV・manifest・チェックポイントの保存先。デフォルトは `apps/voice-gateway/var/recordings`
 
 ## systemd user service（Linux、コンテナなし）
 
 Node.js 22.12 以降、pnpm、systemd が必要です。リポジトリルートで登録スクリプトを実行します。
 
 ```sh
-bash services/voice-gateway/install-systemd-user.sh
+bash apps/voice-gateway/install-systemd-user.sh
 ```
 
 初回実行時に設定テンプレートを `~/.config/ai-meeting-minutes-voice-gateway/production.env` に作成します。Discord Bot token、Worker URL、Worker と共有する2つの token を設定してから、同じコマンドをもう一度実行してください。2回目は依存関係をインストールし、user unit を有効化して起動します。

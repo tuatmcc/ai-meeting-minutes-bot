@@ -4,7 +4,7 @@ Discord 上の会議音声を文字起こしし、Workers AI で議事録を作�
 
 ## 構成
 
-- `services/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
+- `apps/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
 - `apps/worker`: Discord コマンド、Durable Objects によるセッション管理、Workers AI Whisper による文字起こし、AI 議事録生成と Notion 保存を提供します。
 
 ```text
@@ -29,7 +29,7 @@ Docker と Docker Compose が使える常時稼働ホストを用意します。
 リポジトリのルートで環境ファイルを作成します。
 
 ```sh
-cp services/voice-gateway/production.env.example services/voice-gateway/production.env
+cp apps/voice-gateway/production.env.example apps/voice-gateway/production.env
 ```
 
 `production.env` に次を設定します。秘密情報を含むため Git にコミットしないでください。
@@ -43,8 +43,8 @@ Compose は既存の外部ネットワーク `server_default` に参加します
 
 ```sh
 docker network create server_default
-docker compose -f services/voice-gateway/compose.yaml up -d --build
-docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
+docker compose -f apps/voice-gateway/compose.yaml up -d --build
+docker compose -f apps/voice-gateway/compose.yaml logs -f voice-gateway
 ```
 
 ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。文字起こし用コンテナや GPU の設定は不要です。
@@ -54,5 +54,5 @@ docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
 停止は次のコマンドで行います。失敗時のデータを保持するため `down -v` は実行しないでください。
 
 ```sh
-docker compose -f services/voice-gateway/compose.yaml down
+docker compose -f apps/voice-gateway/compose.yaml down
 ```
