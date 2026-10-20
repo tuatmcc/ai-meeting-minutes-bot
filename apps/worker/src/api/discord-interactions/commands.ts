@@ -26,9 +26,11 @@ export async function processCommand(
 	}
 
 	if (command.action === 'imakita') {
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, {
-			content: '今北産業を作成しています。文字起こしの確定を待つ場合があります。',
-		});
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			token,
+			commandMessageAsComponentsV2('今北産業を作成しています。文字起こしの確定を待つ場合があります。'),
+		);
 	}
 
 	let message: CommandMessage;
@@ -48,7 +50,11 @@ export async function processCommand(
 	}
 
 	const response = typeof message === 'string' ? { content: message } : message;
-	const responseUsesComponentsV2 = preserveComponentsV2 || (command.action === 'start' && typeof message !== 'string');
+	const responseUsesComponentsV2 =
+		preserveComponentsV2 ||
+		(command.action === 'start' && typeof message !== 'string') ||
+		command.action === 'status' ||
+		command.action === 'imakita';
 	if (publishStopFollowup && command.action === 'stop') {
 		const published = await createFollowupMessage(env.DISCORD_APPLICATION_ID, token, commandMessageAsComponentsV2(message));
 		if (published && interaction.message) {
@@ -229,11 +235,7 @@ export function parseCommand(interaction: DiscordInteraction): CommandParseResul
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'meeting' &&
-			name !== 'meeting_stop' &&
-			name !== 'meeting_imakita' &&
-			name !== 'meeting_status' &&
-			name !== 'meeting_notion_retry')
+		(name !== 'meeting' && name !== 'meeting_stop' && name !== 'imakinta' && name !== 'status' && name !== 'meeting_notion_retry')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}
@@ -246,10 +248,10 @@ export function parseCommand(interaction: DiscordInteraction): CommandParseResul
 		case 'meeting_stop':
 			action = 'stop';
 			break;
-		case 'meeting_imakita':
+		case 'imakinta':
 			action = 'imakita';
 			break;
-		case 'meeting_status':
+		case 'status':
 			action = 'status';
 			break;
 		case 'meeting_notion_retry':
