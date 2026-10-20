@@ -52,7 +52,7 @@ voice-gateway側は [`../../services/voice-gateway/.env.example`](../../services
 
 `.dev.vars` はGit管理対象外です。実環境では `GATEWAY_API_TOKEN`、`GATEWAY_CONTROL_TOKEN`、`DISCORD_APPLICATION_PUBLIC_KEY`、`DISCORD_BOT_TOKEN`、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`NOTION_API_TOKEN` をWrangler secretsとして登録してください。`DISCORD_APPLICATION_ID` はWorkerの環境変数として設定します。R2 bucket名は `wrangler.jsonc` の `R2_BUCKET_NAME` と `RECORDINGS` bindingで指定します。
 
-gatewayとWorkerのHTTP契約は [`../../packages/contracts/openapi.yaml`](../../packages/contracts/openapi.yaml) にあります。
+gatewayとWorkerのHTTP契約は [`../../contracts/openapi.yaml`](../../contracts/openapi.yaml) にあります。
 
 ## GitHub Actionsからのデプロイ
 
