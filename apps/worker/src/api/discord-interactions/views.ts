@@ -49,7 +49,7 @@ export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginal
 						components: [
 							{
 								type: ComponentType.TextDisplay,
-								content: '**Notion に議事録を保存**\n保存先のデータベースを選ぶと、会議ごとの議事録を自動作成します。',
+								content: '**Notion に議事録を保存**\n会議ごとにデータベースと親ページを選び、議事録を自動作成します。',
 							},
 						],
 						accessory: {
@@ -139,6 +139,7 @@ export function notionDatabasePickerMessage(
 export function notionParentPagePickerMessage(
 	databaseTitle: string,
 	pages: Array<{ pageId: string; title: string }>,
+	dataSourceId: string,
 	notice?: string,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
@@ -177,7 +178,7 @@ export function notionParentPagePickerMessage(
 			type: ComponentType.Button,
 			style: ButtonStyle.Primary,
 			label: '再読み込み',
-			custom_id: 'meeting_retry_notion_pages',
+			custom_id: `meeting_retry_notion_pages:${dataSourceId}`,
 		});
 	}
 	components.push({ type: ComponentType.ActionRow, components: buttons });

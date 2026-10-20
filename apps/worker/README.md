@@ -1,6 +1,6 @@
 # Worker
 
-Cloudflare WorkerはDiscordの `/meeting`・`/meeting_start`・`/meeting_stop`・`/meeting_status`・`/meeting_imakita`・`/meeting_notion_retry`・`/meeting_link_notion_db` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
+Cloudflare WorkerはDiscordの `/meeting`・`/meeting_stop`・`/meeting_status`・`/meeting_imakita`・`/meeting_notion_retry` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
 各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル文字起こしサーバーは不要です。
 
@@ -20,7 +20,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選ぶと、サーバー管理者が保存先DBを選び、そのDB内の親ページを選択して録音を開始できます。VCごとのDB設定には `/meeting_link_notion_db database:` も使えます。`/meeting_start meeting:` では設定済みDB内に手動作成した議事録を検索して選択し、録音を開始できます。`/meeting_start` の対象項目選択とDB設定には、それぞれ候補選択とサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選び、会議ごとに保存先DBと親ページを選択すると録音が始まります。`/meeting_stop` で録音を停止します。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/meeting_status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 
@@ -32,11 +32,11 @@ Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限�
 
 Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemma-4-26b-a4b-it` を使用します。`/meeting_imakita` は `@cf/qwen/qwen3-30b-a3b-fp8` を使用します。どちらも思考モードを無効にしています。
 
-`/meeting_start` を実行すると選択したNotion DB項目の子ページ「AI議事録」を作成し、Discordにリンクを返します。同じ親項目で次の会議を開始すると既存の「AI議事録」ページを再利用します。同じVCで停止後10分以内に同じ親項目を選んで `/meeting_start` すると、完了したセッションを再開し、前後の録音を同じ文字起こしにまとめます。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に作成または既存ページの検索を再試行します。DOはNotion出力の状態・試行回数・直近の失敗理由を保存し、最終出力に失敗した場合は初回を含め最大5試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。議事録DBが未設定の場合、`/meeting_start` は設定方法を案内して録音を開始しません。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログとセッション状態に記録されます。
+`/meeting` で選択したNotion親ページの下に「AI議事録」を作成し、Discordにリンクを返します。同じ親項目で次の会議を開始すると既存の「AI議事録」ページを再利用します。同じVCで停止後10分以内に `/meeting` から同じ親項目を選ぶと、完了したセッションを再開し、前後の録音を同じ文字起こしにまとめます。セッション完了後、WorkerはR2のmanifestからWorkers AIで要約を作り、会議情報・要約・全文字起こしをそのページに反映します。開始時にNotionページを作成できなくても録音は続き、セッション完了後に作成または既存ページの検索を再試行します。DOはNotion出力の状態・試行回数・直近の失敗理由を保存し、最終出力に失敗した場合は初回を含め最大5試行します。AI要約に失敗した場合も全文字起こしを含むページを保存します。Notionへの保存が失敗した場合もセッションは完了扱いのままになり、manifestはR2に残ります。エラーはWorkerのログとセッション状態に記録されます。
 
 1. Notion Developer Portalでinternal connectionを作成し、`Read content`、`Insert content`、`Update content` の権限を付けます。
 2. 対象の議事録データベースにconnectionを追加します。WorkerがDB内の項目を検索し、選択項目の下にAI議事録ページを作成します。
-3. `/meeting_link_notion_db database:` で使うDBを選びます。この操作はDiscordのサーバー管理権限を持つ人が行います。
+3. `/meeting` からNotionへの保存を選び、会議ごとに使うデータベースと親ページを選択します。
 
 子ページの本文にはsession情報、要約、全文字起こしが入ります。
 
