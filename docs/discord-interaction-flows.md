@@ -2,7 +2,7 @@
 
 Worker が受け取る Discord Interaction は HTTP リクエストとしては個別ですが、コマンド・ボタン・選択メニューを通じて複数の Interaction にまたがるフローもあります。この図は現在の実装における入口、分岐、録音開始までの処理を示します。
 
-実装: [`discord-interactions.ts`](../apps/worker/src/api/discord-interactions.ts)
+入口: [`discord-interactions.ts`](../apps/worker/src/api/discord-interactions.ts)。各入口の分岐は [`commands.ts`](../apps/worker/src/api/discord-interactions/commands.ts)、[`components.ts`](../apps/worker/src/api/discord-interactions/components.ts)、[`autocomplete.ts`](../apps/worker/src/api/discord-interactions/autocomplete.ts) にあり、Discord の画面生成は [`views.ts`](../apps/worker/src/api/discord-interactions/views.ts) にあります。
 
 ## Interaction の振り分け
 
