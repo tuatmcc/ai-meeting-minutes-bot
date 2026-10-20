@@ -18,7 +18,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で案内と保存先の選択肢を表示します。Notionを使う場合は、従来どおりサーバー管理者が `/meeting_link_notion_db database:` でこのVCに対応する議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。DBの設定にはサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選ぶと、サーバー管理者が保存先DBを選び、そのDB内の親ページを選択して録音を開始できます。VCごとのDB設定には `/meeting_link_notion_db database:` も使えます。`/meeting_start meeting:` では設定済みDB内に手動作成した議事録を検索して選択し、録音を開始できます。`/meeting_start` の対象項目選択とDB設定には、それぞれ候補選択とサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/meeting_status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 

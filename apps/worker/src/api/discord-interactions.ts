@@ -4,6 +4,7 @@ import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
 import { summarizeForCatchUp } from '../ai/summaries.js';
 import { getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
+import type { NotionDataSource } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SNOWFLAKE_PATTERN = /^\d{17,20}$/;
@@ -124,7 +125,12 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	return Response.json(deferredResponse);
 }
 
-async function processCommand(command: ParsedCommand, interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
+async function processCommand(
+	command: ParsedCommand,
+	interaction: DiscordInteraction,
+	env: WorkerEnv,
+	preserveComponentsV2 = false,
+): Promise<void> {
 	const token = interaction.token;
 	if (!token) {
 		return;
@@ -152,7 +158,26 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		message = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
 	}
 
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, typeof message === 'string' ? { content: message } : message);
+	const response = typeof message === 'string' ? { content: message } : message;
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, preserveComponentsV2 ? commandMessageAsComponentsV2(message) : response);
+}
+
+function commandMessageAsComponentsV2(message: CommandMessage): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	const embed = typeof message === 'string' ? undefined : message.embeds?.[0];
+	const components = embed
+		? [
+				...(embed.title ? [{ type: ComponentType.TextDisplay as const, content: `# ${embed.title}` }] : []),
+				...(embed.description ? [{ type: ComponentType.TextDisplay as const, content: embed.description }] : []),
+				...(embed.fields ?? []).map((field) => ({
+					type: ComponentType.TextDisplay as const,
+					content: `**${field.name}**\n${field.value}`,
+				})),
+			]
+		: [{ type: ComponentType.TextDisplay as const, content: typeof message === 'string' ? message : '録音を開始しました。' }];
+	return {
+		flags: MessageFlags.IsComponentsV2,
+		components: [{ type: ComponentType.Container, accent_color: 0x5865f2, components }],
+	};
 }
 
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
@@ -302,6 +327,30 @@ async function handleComponentInteraction(interaction: DiscordInteraction, env: 
 		}
 		return Response.json({ type: 6 });
 	}
+	if (customId === 'meeting_retry_notion_pages') {
+		ctx.waitUntil(showNotionPagePicker(interaction, componentContext, env));
+		return Response.json({ type: 6 });
+	}
+	if (customId === 'meeting_select_notion_page') {
+		const notionParentPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
+		if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		ctx.waitUntil(
+			processCommand(
+				{
+					action: 'start',
+					guildId: componentContext.guildId,
+					channelId: componentContext.channelId,
+					notionParentPageId,
+					notionDatabaseId: null,
+					canManageGuild: componentContext.canManageGuild,
+				},
+				interaction,
+				env,
+				true,
+			),
+		);
+		return Response.json({ type: 6 });
+	}
 	if (customId === 'meeting_setup_cancel') {
 		ctx.waitUntil(showMeetingMessage(interaction, componentContext, env));
 		return Response.json({ type: 6 });
@@ -376,17 +425,51 @@ async function saveNotionDatabase(
 		}
 		const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
 		await session.setNotionDatabase(database);
-		await editOriginalResponse(
-			env.DISCORD_APPLICATION_ID,
-			interaction.token,
-			meetingMessage(componentContext.channelId, database, 'Notion の保存先を設定しました。'),
-		);
+		await showNotionPagePicker(interaction, componentContext, env, database);
 	} catch (error) {
 		console.error('[notion] database save failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
 			interaction.token,
 			notionDatabasePickerMessage([], 'Notion の保存先を設定できませんでした。時間をおいて再試行してください。'),
+		);
+	}
+}
+
+async function showNotionPagePicker(
+	interaction: DiscordInteraction,
+	componentContext: ComponentContext,
+	env: WorkerEnv,
+	selectedDatabase?: NotionDataSource,
+): Promise<void> {
+	if (!interaction.token) return;
+	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
+	const database = selectedDatabase ?? (await session.getNotionDatabase());
+	if (!database) {
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			meetingMessage(componentContext.channelId, null, 'この VC の議事録 DB が未設定です。'),
+		);
+		return;
+	}
+	try {
+		const pages = await queryNotionDataSource(env, database, '');
+		const notice =
+			pages.length === 0
+				? 'このデータベースに選択できるページがありません。Notion の共有設定を確認して再読み込みしてください。'
+				: undefined;
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, notionParentPagePickerMessage(database.title, pages, notice));
+	} catch (error) {
+		console.error('[notion] database page query failed', error instanceof Error ? error.name : 'unknown error');
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionParentPagePickerMessage(
+				database.title,
+				[],
+				'データベース内のページを取得できませんでした。時間をおいて再読み込みしてください。',
+			),
 		);
 	}
 }
@@ -514,6 +597,68 @@ function notionDatabasePickerMessage(
 											style: ButtonStyle.Primary,
 											label: '再試行',
 											custom_id: 'meeting_setup_notion',
+										},
+									]
+								: []),
+						],
+					},
+				],
+			},
+		],
+	};
+}
+
+function notionParentPagePickerMessage(
+	databaseTitle: string,
+	pages: Array<{ pageId: string; title: string }>,
+	notice?: string,
+): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	return {
+		flags: MessageFlags.IsComponentsV2,
+		components: [
+			{
+				type: ComponentType.Container,
+				accent_color: 0x5865f2,
+				components: [
+					{ type: ComponentType.TextDisplay, content: '# 録音する会議の親ページを選択' },
+					{
+						type: ComponentType.TextDisplay,
+						content: `データベース: **${databaseTitle}**\n選んだページの下に AI 議事録を作成し、録音を開始します。`,
+					},
+					...(notice ? [{ type: ComponentType.TextDisplay as const, content: notice }] : []),
+					...(pages.length > 0
+						? [
+								{
+									type: ComponentType.ActionRow as const,
+									components: [
+										{
+											type: ComponentType.StringSelect,
+											custom_id: 'meeting_select_notion_page',
+											placeholder: '録音する会議の親ページを選択',
+											options: pages.map((page) => ({ label: page.title.slice(0, 100), value: page.pageId })),
+											min_values: 1,
+											max_values: 1,
+										},
+									],
+								},
+							]
+						: []),
+					{
+						type: ComponentType.ActionRow,
+						components: [
+							{
+								type: ComponentType.Button,
+								style: ButtonStyle.Secondary,
+								label: '戻る',
+								custom_id: 'meeting_setup_cancel',
+							},
+							...(pages.length === 0
+								? [
+										{
+											type: ComponentType.Button as const,
+											style: ButtonStyle.Primary,
+											label: '再読み込み',
+											custom_id: 'meeting_retry_notion_pages',
 										},
 									]
 								: []),
