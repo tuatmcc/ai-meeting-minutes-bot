@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
 import { createMeetingPage, markMeetingPageFailed, type CreatedMeetingPage } from '../notion/meeting-pages.js';
 import { publishMeetingToNotion } from '../meetings/publish-meeting.js';
+import { sendGatewayDisconnectedMessage } from '../discord/messages.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
 import {
 	isValidAudio,
@@ -627,19 +628,28 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 	}
 
 	async failSessionForGatewayDisconnect(sessionId: string): Promise<void> {
-		const result = await this.failSession(sessionId, 'gateway_disconnected');
-		if (!result.ok || result.session.errorCode !== 'gateway_disconnected' || !result.session.notionPageId || !this.env.NOTION_API_TOKEN) {
+		const current = this.findBySessionId(sessionId);
+		if (!current || current.state === 'failed' || current.state === 'completed') {
 			return;
 		}
 
-		try {
-			await markMeetingPageFailed(this.env, result.session, 'gateway_disconnected');
-		} catch (error) {
-			console.error(
-				`[notion] failed session page update failed for ${sessionId}`,
-				error instanceof Error ? error.message : 'unknown error',
-			);
+		const result = await this.failSession(sessionId, 'gateway_disconnected');
+		if (!result.ok || result.session.errorCode !== 'gateway_disconnected') {
+			return;
 		}
+
+		if (result.session.notionPageId && this.env.NOTION_API_TOKEN) {
+			try {
+				await markMeetingPageFailed(this.env, result.session, 'gateway_disconnected');
+			} catch (error) {
+				console.error(
+					`[notion] failed session page update failed for ${sessionId}`,
+					error instanceof Error ? error.message : 'unknown error',
+				);
+			}
+		}
+
+		await sendGatewayDisconnectedMessage(this.env, result.session);
 	}
 
 	async alarm(): Promise<void> {

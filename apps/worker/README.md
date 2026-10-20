@@ -8,7 +8,7 @@ Cloudflare WorkerはDiscordの `meeting_` プレフィックス付き `/meeting_
 
 ## Discord設定
 
-Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホスト>/interactions` に設定します。アプリケーションIDと公開鍵をWorker環境に設定し、`GATEWAY_CONTROL_TOKEN` にはvoice-gatewayと共有するランダムな値を設定します。
+Discord Developer PortalのInteraction Endpoint URLを `https://<Workerのホスト>/interactions` に設定します。アプリケーションIDと公開鍵をWorker環境に設定し、`GATEWAY_CONTROL_TOKEN` にはvoice-gatewayと共有するランダムな値を設定します。Gatewayとの接続が切断されて録音が中断された場合、Workerは対象VCのチャットにエラー埋め込みを送信します。そのため、Workerにも `DISCORD_BOT_TOKEN` をsecretとして設定してください。
 
 DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal commandとして登録されます。Workflowで使うため、GitHub Actions secretsに `DISCORD_BOT_TOKEN` を登録してください。アプリケーションIDは `wrangler.jsonc` とGitHub Actionsの設定で同じ値を使います。
 
@@ -18,7 +18,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。コマンドは対象VCのチャット内で入力します。まず管理者が `/meeting_link_notion_db database:` で、このVCに対応するNotion議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。`/meeting_link_notion_db` はサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。まず管理者が `/meeting_link_notion_db database:` で、このVCに対応するNotion議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。`/meeting_link_notion_db` はサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/meeting_status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 
@@ -50,7 +50,7 @@ Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemm
 
 voice-gateway側は [`../../services/voice-gateway/.env.example`](../../services/voice-gateway/.env.example) を `.env` にコピーして設定できます。
 
-`.dev.vars` はGit管理対象外です。実環境では `GATEWAY_API_TOKEN`、`GATEWAY_CONTROL_TOKEN`、`DISCORD_APPLICATION_PUBLIC_KEY`、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`NOTION_API_TOKEN` をWrangler secretsとして登録してください。`DISCORD_APPLICATION_ID` はWorkerの環境変数として設定します。R2 bucket名は `wrangler.jsonc` の `R2_BUCKET_NAME` と `RECORDINGS` bindingで指定します。
+`.dev.vars` はGit管理対象外です。実環境では `GATEWAY_API_TOKEN`、`GATEWAY_CONTROL_TOKEN`、`DISCORD_APPLICATION_PUBLIC_KEY`、`DISCORD_BOT_TOKEN`、`R2_ACCOUNT_ID`、`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY`、`NOTION_API_TOKEN` をWrangler secretsとして登録してください。`DISCORD_APPLICATION_ID` はWorkerの環境変数として設定します。R2 bucket名は `wrangler.jsonc` の `R2_BUCKET_NAME` と `RECORDINGS` bindingで指定します。
 
 gatewayとWorkerのHTTP契約は [`../../packages/contracts/openapi.yaml`](../../packages/contracts/openapi.yaml) にあります。
 
