@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
-import { createMeetingPage, markMeetingPageFailed, publishMeetingToNotion, type CreatedMeetingPage } from '../notion/meeting-pages.js';
+import { createMeetingPage, markMeetingPageFailed, type CreatedMeetingPage } from '../notion/meeting-pages.js';
+import { publishMeetingToNotion } from '../meetings/publish-meeting.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
 import {
 	isValidAudio,
@@ -324,6 +325,34 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return { session: toSession(row), segmentIndexOffset: segments.next_segment_index, timeOffsetMs: row.duration_ms };
 	}
 
+	async getFinalizedTranscript(sessionId: string): Promise<string | null> {
+		const session = this.findBySessionId(sessionId);
+		if (!session || session.state !== 'recording') return null;
+		const segments = this.ctx.storage.sql
+			.exec<{
+				speaker_id: string;
+				start_ms: number;
+				segment_index: number;
+				transcription: string | null;
+			}>(
+				`SELECT speaker_id, start_ms, segment_index, transcription
+				 FROM audio_segments
+				 WHERE session_id = ? AND transcription IS NOT NULL
+				 ORDER BY start_ms, segment_index`,
+				sessionId,
+			)
+			.toArray();
+		return segments
+			.flatMap((segment) => {
+				const text = (JSON.parse(segment.transcription!) as Transcription).text.trim();
+				if (!text) return [];
+				const totalSeconds = Math.floor(segment.start_ms / 1000);
+				const timestamp = `${String(Math.floor(totalSeconds / 3600)).padStart(2, '0')}:${String(Math.floor(totalSeconds / 60) % 60).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`;
+				return [`[${timestamp}] speaker=${segment.speaker_id}: ${text}`];
+			})
+			.join('\n');
+	}
+
 	async getNotionDatabase(): Promise<{ dataSourceId: string; title: string; titleProperty: string } | null> {
 		const row = this.ctx.storage.sql
 			.exec<{ data_source_id: string; title: string; title_property: string }>(
@@ -375,25 +404,40 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		}
 	}
 
-	async markNotionPageCreating(
-		sessionId: string,
-	): Promise<{ ok: true; session: VoiceSession; claimed: boolean } | { ok: false; code: 'SESSION_NOT_FOUND' }> {
+	async ensureMeetingPage(sessionId: string): Promise<SessionOperation> {
 		const session = this.findBySessionId(sessionId);
-		if (!session) {
-			return { ok: false, code: 'SESSION_NOT_FOUND' };
-		}
-		if (!session.notion_parent_page_id || session.notion_page_id || session.notion_page_status === 'creating') {
-			return { ok: true, session: toSession(session), claimed: false };
-		}
+		if (!session) return { ok: false, code: 'SESSION_NOT_FOUND' };
+		if (!session.notion_parent_page_id || session.notion_page_id) return { ok: true, session: toSession(session) };
 
 		this.ctx.storage.sql.exec(
-			"UPDATE sessions SET notion_page_status = 'creating', notion_last_error = NULL WHERE session_id = ?",
+			`UPDATE sessions
+			 SET notion_page_status = CASE
+				 WHEN notion_page_status = 'pending'
+				   OR (notion_page_status = 'failed' AND state IN ('starting', 'recording', 'processing'))
+				 THEN 'creating'
+				 ELSE notion_page_status
+			 END,
+			 notion_last_error = CASE
+				 WHEN notion_page_status IN ('pending', 'creating')
+				   OR (notion_page_status = 'failed' AND state IN ('starting', 'recording', 'processing'))
+				 THEN NULL
+				 ELSE notion_last_error
+			 END
+			 WHERE session_id = ?`,
 			sessionId,
 		);
-		return { ok: true, session: toSession(this.findBySessionId(sessionId)!), claimed: true };
+		try {
+			const page = await this.env.VOICE_CHANNEL_SESSION.getByName(
+				`notion-parent:${session.notion_parent_page_id}`,
+			).createMeetingPageForParent(toSession(this.findBySessionId(sessionId)!));
+			return await this.setNotionPage(sessionId, page.pageId, page.pageUrl);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return this.failNotionPageCreation(sessionId, message);
+		}
 	}
 
-	async setNotionPage(sessionId: string, pageId: string, pageUrl: string | null): Promise<SessionOperation> {
+	private async setNotionPage(sessionId: string, pageId: string, pageUrl: string | null): Promise<SessionOperation> {
 		const session = this.findBySessionId(sessionId);
 		if (!session) {
 			return { ok: false, code: 'SESSION_NOT_FOUND' };
@@ -403,7 +447,19 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		}
 
 		this.ctx.storage.sql.exec(
-			"UPDATE sessions SET notion_page_id = ?, notion_page_url = ?, notion_page_status = 'created', notion_last_error = NULL, notion_next_attempt_at = NULL WHERE session_id = ?",
+			`UPDATE sessions
+			 SET notion_page_id = ?,
+			     notion_page_url = ?,
+			     notion_page_status = CASE
+				     WHEN notion_page_status IN ('pending', 'creating') THEN 'created'
+				     ELSE notion_page_status
+			     END,
+			     notion_last_error = NULL,
+			     notion_next_attempt_at = CASE
+				     WHEN notion_page_status IN ('pending', 'creating') THEN NULL
+				     ELSE notion_next_attempt_at
+			     END
+			 WHERE session_id = ?`,
 			pageId,
 			pageUrl,
 			sessionId,
@@ -411,13 +467,23 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
 	}
 
-	async failNotionPageCreation(sessionId: string, error: string): Promise<SessionOperation> {
+	private async failNotionPageCreation(sessionId: string, error: string): Promise<SessionOperation> {
 		const session = this.findBySessionId(sessionId);
 		if (!session) {
 			return { ok: false, code: 'SESSION_NOT_FOUND' };
 		}
 		this.ctx.storage.sql.exec(
-			"UPDATE sessions SET notion_page_status = 'failed', notion_last_error = ?, notion_next_attempt_at = NULL WHERE session_id = ?",
+			`UPDATE sessions
+			 SET notion_page_status = CASE
+				     WHEN notion_page_status IN ('pending', 'creating') THEN 'failed'
+				     ELSE notion_page_status
+			     END,
+			     notion_last_error = ?,
+			     notion_next_attempt_at = CASE
+				     WHEN notion_page_status IN ('pending', 'creating') THEN NULL
+				     ELSE notion_next_attempt_at
+			     END
+			 WHERE session_id = ?`,
 			truncateError(error),
 			sessionId,
 		);
@@ -604,14 +670,10 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		try {
 			let session = toSession(this.findBySessionId(row.session_id)!);
 			if (!session.notionPageId) {
-				const page = await this.createMeetingPageForParent(session);
-				this.ctx.storage.sql.exec(
-					'UPDATE sessions SET notion_page_id = ?, notion_page_url = ? WHERE session_id = ?',
-					page.pageId,
-					page.pageUrl,
-					session.sessionId,
-				);
-				session = toSession(this.findBySessionId(session.sessionId)!);
+				const ensured = await this.ensureMeetingPage(session.sessionId);
+				if (!ensured.ok) throw new Error(`Could not create Notion meeting page: ${ensured.code}`);
+				session = ensured.session;
+				if (!session.notionPageId) throw new Error(session.notionLastError ?? 'Could not create Notion meeting page');
 			}
 
 			await publishMeetingToNotion(this.env, session);

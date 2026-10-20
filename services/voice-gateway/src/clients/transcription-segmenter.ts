@@ -115,10 +115,6 @@ export class TranscriptionSegmenter {
 		return this.finalResult;
 	}
 
-	getSnapshot(): string {
-		return formatTranscript(this.sortedSegments());
-	}
-
 	private sortedSegments(): TranscriptionSegment[] {
 		return [...this.completedSegments].sort((a, b) => a.startMs - b.startMs || a.index - b.index);
 	}

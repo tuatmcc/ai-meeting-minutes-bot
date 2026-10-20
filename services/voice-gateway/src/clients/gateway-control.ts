@@ -10,11 +10,7 @@ type BaseGatewayCommand = {
 };
 
 export type GatewayCommand = BaseGatewayCommand &
-	(
-		| { action: 'start'; resume?: { segmentIndexOffset: number; timeOffsetMs: number } }
-		| { action: 'stop' }
-		| { action: 'imakita'; applicationId: string; interactionToken: string }
-	);
+	({ action: 'start'; resume?: { segmentIndexOffset: number; timeOffsetMs: number } } | { action: 'stop' });
 
 type ControlMessage =
 	| { type: 'authenticated' }
@@ -300,14 +296,7 @@ function isGatewayCommand(value: unknown): value is GatewayCommand {
 	if (value.action === 'stop') {
 		return value.resume === undefined;
 	}
-	return (
-		value.action === 'imakita' &&
-		typeof value.applicationId === 'string' &&
-		SNOWFLAKE_PATTERN.test(value.applicationId) &&
-		typeof value.interactionToken === 'string' &&
-		value.interactionToken.length > 0 &&
-		value.interactionToken.length <= 1024
-	);
+	return false;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
