@@ -29,16 +29,18 @@ const commands = [
 	{ name: 'meeting_imakita', description: '会議の現在地を短く要約します', type: 1 },
 	{ name: 'meeting_status', description: 'このボイスチャンネルの録音状態を表示します', type: 1 },
 	{ name: 'meeting_notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
+	{ name: 'meeting', description: '議事録Botの案内と保存先の選択肢を表示します', type: 1 },
 	{
-		name: 'meeting',
-		description: '議事録Botの案内を表示し、保存先を設定します',
+		name: 'meeting_link_notion_db',
+		description: 'このボイスチャンネルの議事録DBを設定します',
 		type: 1,
+		default_member_permissions: '32',
 		options: [
 			{
 				name: 'database',
 				description: 'Notion DBを検索して選択',
 				type: 3,
-				required: false,
+				required: true,
 				autocomplete: true,
 			},
 		],

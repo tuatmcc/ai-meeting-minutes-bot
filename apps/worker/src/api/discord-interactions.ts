@@ -23,12 +23,13 @@ type DiscordInteraction = {
 	member?: { permissions?: string };
 	data?: {
 		name?: string;
+		custom_id?: string;
 		options?: Array<{ name?: string; type?: number; value?: unknown; focused?: boolean }>;
 	};
 };
 
 type ParsedCommand = {
-	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'meeting' | 'status';
+	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db' | 'meeting' | 'status';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
@@ -80,6 +81,16 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	if (value.type === 1) {
 		return Response.json({ type: 1 });
 	}
+	if (value.type === 3) {
+		if (
+			!value.token ||
+			!SNOWFLAKE_PATTERN.test(value.id) ||
+			(value.data?.custom_id !== 'meeting_setup_notion' && value.data?.custom_id !== 'meeting_setup_discord')
+		) {
+			return interactionMessage('この操作には対応していません。');
+		}
+		return Response.json({ type: 6 });
+	}
 	if (value.type === 4) {
 		if (!value.token || !SNOWFLAKE_PATTERN.test(value.id)) {
 			return Response.json({ type: 8, data: { choices: [] } });
@@ -96,7 +107,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、または `/meeting_notion_retry` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、`/meeting_notion_retry`、または `/meeting_link_notion_db` を実行してください。',
 		);
 	}
 
@@ -142,15 +153,15 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
+	if (command.action === 'link_notion_db') {
+		if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
+		if (!command.notionDatabaseId) return 'Notion DBを候補から選択してください。';
+		const database = await getNotionDataSource(env, command.notionDatabaseId);
+		if (!database) return 'Notion DBを取得できませんでした。BotにDBを共有してから、もう一度選んでください。';
+		await session.setNotionDatabase(database);
+		return `この VC の議事録DBを「${database.title}」に設定しました。`;
+	}
 	if (command.action === 'meeting') {
-		if (command.notionDatabaseId) {
-			if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
-			const database = await getNotionDataSource(env, command.notionDatabaseId);
-			if (!database) return 'Notion DBを取得できませんでした。BotにDBを共有してから、もう一度選んでください。';
-			await session.setNotionDatabase(database);
-			return `この VC の議事録DBを「${database.title}」に設定しました。`;
-		}
-
 		const database = await session.getNotionDatabase();
 		return {
 			embeds: [
@@ -162,10 +173,22 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 						{ name: '現在の VC', value: `<#${command.channelId}>` },
 						{
 							name: '保存先',
-							value: database
-								? `Notion: ${database.title}`
-								: 'まだ設定されていません。Notionに保存する場合は、サーバー管理者が `/meeting database:` からDBを選択してください。',
+							value: database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？',
 						},
+						{
+							name: 'Notion に議事録を保存',
+							value: '指定したデータベースに会議ごとの議事録を自動作成します。DB設定には `/meeting_link_notion_db` を使います。',
+						},
+						{ name: 'Discord だけで使う', value: '議事録を Discord に投稿します。Notion は後から連携できます。' },
+					],
+				},
+			],
+			components: [
+				{
+					type: 1,
+					components: [
+						{ type: 2, style: 2, label: 'Notion に議事録を保存', custom_id: 'meeting_setup_notion', emoji: { name: '📖' } },
+						{ type: 2, style: 2, label: 'Discord だけで使う', custom_id: 'meeting_setup_discord', emoji: { name: '💬' } },
 					],
 				},
 			],
@@ -174,7 +197,8 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 	if (command.action === 'start') {
 		const notionParentPageId = command.notionParentPageId;
 		if (!notionParentPageId) return '議事録DBの項目を選択してください。';
-		if (!(await session.getNotionDatabase())) return 'この VC の議事録DBが未設定です。管理者が `/meeting database:` で設定してください。';
+		if (!(await session.getNotionDatabase()))
+			return 'この VC の議事録DBが未設定です。管理者が `/meeting_link_notion_db` で設定してください。';
 		const result = await session.startSession(command.guildId, command.channelId, interactionId, notionParentPageId);
 		if (!result.ok) {
 			return result.code === 'SESSION_ALREADY_ACTIVE'
@@ -355,7 +379,7 @@ function sessionStateMessage(session: VoiceSession, channelId: string): string {
 async function handleAutocomplete(interaction: DiscordInteraction, env: WorkerEnv): Promise<Response> {
 	const data = interaction.data;
 	const option = data?.options?.find((item) => item.focused);
-	const isDatabaseCommand = data?.name === 'meeting';
+	const isDatabaseCommand = data?.name === 'meeting_link_notion_db';
 	const permissions = interaction.member?.permissions;
 	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
 	if (
@@ -416,6 +440,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
 		(name !== 'meeting' &&
+			name !== 'meeting_link_notion_db' &&
 			name !== 'meeting_start' &&
 			name !== 'meeting_stop' &&
 			name !== 'meeting_imakita' &&
@@ -425,7 +450,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 		return { ok: false, reason: 'unsupported' };
 	}
 
-	const optionName = name === 'meeting_start' ? 'meeting' : name === 'meeting' ? 'database' : null;
+	const optionName = name === 'meeting_start' ? 'meeting' : name === 'meeting_link_notion_db' ? 'database' : null;
 	const action = name.replace(/^meeting_/, '') as ParsedCommand['action'];
 	const option = optionName ? interaction.data?.options?.find((item) => item.name === optionName) : undefined;
 	const selectedValue = option && typeof option.value === 'string' ? option.value : null;
@@ -440,7 +465,7 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 			guildId,
 			channelId,
 			notionParentPageId: action === 'start' ? normalizedId : null,
-			notionDatabaseId: action === 'meeting' ? normalizedId : null,
+			notionDatabaseId: action === 'link_notion_db' ? normalizedId : null,
 			canManageGuild,
 		},
 	};
@@ -493,6 +518,7 @@ function isApplicationCommandData(value: unknown): boolean {
 	const data = value as Record<string, unknown>;
 	return (
 		(data.name === undefined || typeof data.name === 'string') &&
+		(data.custom_id === undefined || typeof data.custom_id === 'string') &&
 		(data.options === undefined || (Array.isArray(data.options) && data.options.every(isApplicationCommandOption)))
 	);
 }
