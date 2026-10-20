@@ -1,3 +1,4 @@
+import type { APIEmbed, APIInteractionResponse, RESTPatchAPIInteractionOriginalResponseJSONBody } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
 import { summarizeForCatchUp } from '../ai/summaries.js';
@@ -34,6 +35,8 @@ type ParsedCommand = {
 	notionDatabaseId: string | null;
 	canManageGuild: boolean;
 };
+
+type CommandMessage = string | RESTPatchAPIInteractionOriginalResponseJSONBody;
 
 type CommandParseResult = { ok: true; command: ParsedCommand } | { ok: false; reason: 'unsupported' };
 
@@ -99,7 +102,11 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 
 	const command = parsed.command;
 	ctx.waitUntil(processCommand(command, value, env));
-	return Response.json({ type: 5, data: { flags: 64 } });
+	const deferredResponse: APIInteractionResponse = {
+		type: 5,
+		...(command.action === 'start' || command.action === 'stop' ? {} : { data: { flags: 64 } }),
+	};
+	return Response.json(deferredResponse);
 }
 
 async function processCommand(command: ParsedCommand, interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
@@ -109,12 +116,14 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 	}
 
 	if (command.action === 'imakita') {
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, '今北産業を作成しています。文字起こしの確定を待つ場合があります。');
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, {
+			content: '今北産業を作成しています。文字起こしの確定を待つ場合があります。',
+		});
 	}
 
-	let content: string;
+	let message: CommandMessage;
 	try {
-		content = await executeCommand(command, interaction.id, env);
+		message = await executeCommand(command, interaction.id, env);
 	} catch (error) {
 		console.error(
 			JSON.stringify({
@@ -125,13 +134,13 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 				error: error instanceof Error ? error.name : 'unknown',
 			}),
 		);
-		content = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
+		message = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
 	}
 
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, typeof message === 'string' ? { content: message } : message);
 }
 
-async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<string> {
+async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'link_notion_db') {
 		if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
@@ -165,14 +174,16 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 			...(result.resumed ? { resume: { segmentIndexOffset: result.segmentIndexOffset ?? 0, timeOffsetMs: result.timeOffsetMs ?? 0 } } : {}),
 		});
 
+		let notionPageId = result.session.notionPageId;
 		let notionPageUrl = result.session.notionPageUrl;
 		let notionPageCreationFailed = false;
-		if (result.session.notionParentPageId && !result.session.notionPageId) {
+		if (result.session.notionParentPageId && !notionPageId) {
 			try {
 				const ensured = await session.ensureMeetingPage(result.session.sessionId);
 				if (!ensured.ok) throw new Error(`Could not create Notion page: ${ensured.code}`);
+				notionPageId = ensured.session.notionPageId;
 				notionPageUrl = ensured.session.notionPageUrl;
-				notionPageCreationFailed = !ensured.session.notionPageId;
+				notionPageCreationFailed = !notionPageId;
 			} catch (error) {
 				notionPageCreationFailed = true;
 				const message = error instanceof Error ? error.message : 'unknown error';
@@ -180,15 +191,19 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 			}
 		}
 
-		const notionMessage = notionPageUrl
-			? ` Notionページ: <${notionPageUrl}>（録音終了後に内容を更新します）`
-			: notionPageCreationFailed
-				? ' Notionページの作成に失敗したため、録音終了後に再試行します。'
-				: ' Notionページは録音終了後に更新します。';
 		const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
-		return queued.gatewayConnected
-			? `${action}: <#${command.channelId}>${notionMessage}`
-			: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>${notionMessage}`;
+		return {
+			embeds: [
+				recordingEmbed(
+					result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
+					queued.gatewayConnected
+						? `${action}: <#${command.channelId}>`
+						: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
+					{ ...result.session, notionPageId, notionPageUrl },
+					notionPageCreationFailed,
+				),
+			],
+		};
 	}
 
 	if (command.action === 'notion_retry') {
@@ -239,9 +254,38 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 		channelId: command.channelId,
 		sessionId: active.sessionId,
 	});
-	return queued.gatewayConnected
-		? `録音の停止要求を送信しました: <#${command.channelId}>`
-		: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`;
+	const embed: APIEmbed = {
+		title: '録音終了要求を送信しました',
+		description: queued.gatewayConnected
+			? `録音の停止要求を送信しました: <#${command.channelId}>`
+			: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`,
+		color: 0x5865f2,
+	};
+	return {
+		embeds: [embed],
+	};
+}
+
+function recordingEmbed(
+	title: string,
+	description: string,
+	session: Pick<VoiceSession, 'notionParentPageId' | 'notionPageId' | 'notionPageUrl'>,
+	notionPageCreationFailed: boolean,
+): APIEmbed {
+	const fields: NonNullable<APIEmbed['fields']> = [];
+	if (session.notionParentPageId) {
+		fields.push({ name: '対象の議事録', value: `[Notionで開く](${notionUrl(session.notionParentPageId)})` });
+	}
+	const aiPageUrl = session.notionPageUrl ?? (session.notionPageId ? notionUrl(session.notionPageId) : null);
+	fields.push({
+		name: 'AI議事録',
+		value: aiPageUrl
+			? `[Notionで開く](${aiPageUrl})`
+			: notionPageCreationFailed
+				? 'ページの作成に失敗しました。録音終了後に再試行します。'
+				: 'AI議事録ページは未作成です。',
+	});
+	return { title, description, color: 0x5865f2, fields };
 }
 
 function formatSessionStatus(session: VoiceSession, gatewayStatus: 'connected' | 'disconnected'): string {
@@ -389,6 +433,10 @@ function normalizeNotionPageId(rawId?: string): string | null {
 	return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`.toLowerCase();
 }
 
+function notionUrl(pageId: string): string {
+	return `https://www.notion.so/${pageId.replaceAll('-', '')}`;
+}
+
 function isDiscordInteraction(value: unknown): value is DiscordInteraction {
 	if (typeof value !== 'object' || value === null) {
 		return false;
@@ -512,14 +560,18 @@ function interactionMessage(content: string): Response {
 	return Response.json({ type: 4, data: { content, flags: 64 } });
 }
 
-async function editOriginalResponse(applicationId: string, token: string, content: string): Promise<void> {
+async function editOriginalResponse(
+	applicationId: string,
+	token: string,
+	message: RESTPatchAPIInteractionOriginalResponseJSONBody,
+): Promise<void> {
 	try {
 		const response = await fetch(
 			`${DISCORD_API_BASE}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}/messages/@original`,
 			{
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ content }),
+				body: JSON.stringify(typeof message === 'string' ? { content: message } : message),
 			},
 		);
 		if (!response.ok) {
