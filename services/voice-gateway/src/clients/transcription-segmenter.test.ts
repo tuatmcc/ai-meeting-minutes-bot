@@ -44,7 +44,6 @@ void test('speaker buffers remain separate and completed transcript is chronolog
 	assert.equal(calls[0]!.wav.readInt16LE(44), Math.round(0.2 * 32767));
 	assert.equal(calls[1]!.wav.readInt16LE(44), Math.round(0.1 * 32767));
 	assert.match(result.text, /^\[00:00:00\] speaker=10: text-10\n\[00:00:05\] speaker=20:/);
-	assert.equal(segmenter.getSnapshot(), result.text);
 });
 
 void test('flushes after 1.5 seconds silence only when duration is at least ten seconds', async (t) => {

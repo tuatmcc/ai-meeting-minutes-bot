@@ -1,5 +1,6 @@
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
+import { summarizeForCatchUp } from '../ai/summaries.js';
 import { getNotionDataSource, queryNotionDataSource, searchNotionDataSources } from '../notion/meeting-pages.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -111,9 +112,9 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, '今北産業を作成しています。文字起こしの確定を待つ場合があります。');
 	}
 
-	let content: string | null;
+	let content: string;
 	try {
-		content = await executeCommand(command, interaction.id, token, env);
+		content = await executeCommand(command, interaction.id, env);
 	} catch (error) {
 		console.error(
 			JSON.stringify({
@@ -127,17 +128,10 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		content = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
 	}
 
-	if (content !== null) {
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
-	}
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, content);
 }
 
-async function executeCommand(
-	command: ParsedCommand,
-	interactionId: string,
-	interactionToken: string,
-	env: WorkerEnv,
-): Promise<string | null> {
+async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<string> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'link_notion_db') {
 		if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
@@ -175,33 +169,13 @@ async function executeCommand(
 		let notionPageCreationFailed = false;
 		if (result.session.notionParentPageId && !result.session.notionPageId) {
 			try {
-				const creating = await session.markNotionPageCreating(result.session.sessionId);
-				if (!creating.ok) {
-					throw new Error(`Could not update Notion page status: ${creating.code}`);
-				}
-				if (!creating.claimed) {
-					notionPageUrl = creating.session.notionPageUrl;
-				} else {
-					const page = await env.VOICE_CHANNEL_SESSION.getByName(`notion-parent:${notionParentPageId}`).createMeetingPageForParent(
-						creating.session,
-					);
-					const savedPage = await session.setNotionPage(result.session.sessionId, page.pageId, page.pageUrl);
-					if (!savedPage.ok) {
-						throw new Error(`Could not save Notion page ID: ${savedPage.code}`);
-					}
-					notionPageUrl = savedPage.session.notionPageUrl;
-				}
+				const ensured = await session.ensureMeetingPage(result.session.sessionId);
+				if (!ensured.ok) throw new Error(`Could not create Notion page: ${ensured.code}`);
+				notionPageUrl = ensured.session.notionPageUrl;
+				notionPageCreationFailed = !ensured.session.notionPageId;
 			} catch (error) {
 				notionPageCreationFailed = true;
 				const message = error instanceof Error ? error.message : 'unknown error';
-				try {
-					await session.failNotionPageCreation(result.session.sessionId, message);
-				} catch (statusError) {
-					console.error(
-						'[notion] could not persist initial page failure',
-						statusError instanceof Error ? statusError.message : 'unknown error',
-					);
-				}
 				console.error('[notion] initial page creation failed', message);
 			}
 		}
@@ -242,16 +216,12 @@ async function executeCommand(
 		if (active.state !== 'recording') {
 			return active.state === 'processing' ? '録音を終了し、文字起こしを処理中です。' : 'この VC はまだ録音を開始していません。';
 		}
-		await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
-			commandId: interactionId,
-			action: 'imakita',
-			guildId: command.guildId,
-			channelId: command.channelId,
-			sessionId: active.sessionId,
-			applicationId: env.DISCORD_APPLICATION_ID,
-			interactionToken,
-		});
-		return null;
+		const transcript = await session.getFinalizedTranscript(active.sessionId);
+		if (transcript === null) return 'この VC では録音していません。';
+		if (!transcript) return '確定した文字起こしがありません。文字起こしの確定後にもう一度お試しください。';
+		const summary = await summarizeForCatchUp(env, transcript);
+		const content = `**今北産業**\n${summary}`;
+		return content.length > 1_900 ? `${content.slice(0, 1_897)}…` : content;
 	}
 	if (!active || active.guildId !== command.guildId || active.channelId !== command.channelId) {
 		return `この VC では録音していません: <#${command.channelId}>`;

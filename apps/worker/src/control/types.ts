@@ -6,11 +6,7 @@ type BaseGatewayCommand = {
 };
 
 export type GatewayCommand = BaseGatewayCommand &
-	(
-		| { action: 'start'; resume?: { segmentIndexOffset: number; timeOffsetMs: number } }
-		| { action: 'stop' }
-		| { action: 'imakita'; applicationId: string; interactionToken: string }
-	);
+	({ action: 'start'; resume?: { segmentIndexOffset: number; timeOffsetMs: number } } | { action: 'stop' });
 
 export type GatewayEnqueueResult = {
 	gatewayConnected: boolean;

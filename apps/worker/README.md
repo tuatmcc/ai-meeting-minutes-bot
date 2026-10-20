@@ -24,6 +24,8 @@ Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限�
 
 `/meeting_notion_retry` は直近の完了セッションでNotion保存が失敗した場合に、ページ更新を再試行します。
 
+`/meeting_imakita` はWorkerがセッションのSQLiteに保存済みの文字起こしを読み、要約とDiscordへの返信まで処理します。再開したセッションでは、再開前の確定済み文字起こしも対象に含みます。Gatewayへの制御コマンドは送信しません。
+
 ## Notionへの保存
 
 Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemma-4-26b-a4b-it` を使用します。`/meeting_imakita` は `@cf/qwen/qwen3-30b-a3b-fp8` を使用します。どちらも思考モードを無効にしています。
@@ -35,6 +37,8 @@ Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemm
 3. `/meeting_link_notion_db` で使うDBを選びます。この操作はDiscordのサーバー管理権限を持つ人が行います。
 
 子ページの本文にはsession情報、要約、全文字起こしが入ります。
+
+生成した議事録のMarkdownはR2に保存し、Notionへの更新だけが失敗した場合は再試行で再利用します。再開後にmanifestが変わった場合は、その内容に対応する議事録を生成します。
 
 ## ローカル開発
 

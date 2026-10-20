@@ -30,10 +30,10 @@ function wav(durationMs = 1000): ArrayBuffer {
 	return buffer;
 }
 
-async function setup(state = 'recording') {
+async function setup(state = 'recording', notionParentPageId: string | null = null) {
 	const channelId = String(BigInt(guildId) + BigInt(crypto.getRandomValues(new Uint32Array(1))[0]));
 	const stub = env.VOICE_CHANNEL_SESSION.getByName(`${guildId}:${channelId}`);
-	const started = await stub.startSession(guildId, channelId, crypto.randomUUID());
+	const started = await stub.startSession(guildId, channelId, crypto.randomUUID(), notionParentPageId);
 	if (!started.ok) throw new Error('Session setup failed');
 	const sessionId = started.session.sessionId;
 	if (state !== 'starting') await stub.markRecordingStarted(sessionId);
@@ -65,6 +65,36 @@ async function setup(state = 'recording') {
 afterEach(() => vi.restoreAllMocks());
 
 describe('audio chunk transcription API', () => {
+	it('returns only finalized nonempty segments in time order, including segments from a resumed recording', async () => {
+		const parentPageId = crypto.randomUUID();
+		const { stub, sessionId, send } = await setup('recording', parentPageId);
+		const run = vi
+			.fn()
+			.mockResolvedValueOnce({ text: '   ' })
+			.mockResolvedValueOnce({ text: '後半' })
+			.mockResolvedValueOnce({ text: '前半' });
+		await runInDurableObject(stub, (instance) => {
+			vi.spyOn(instance['env'].AI, 'run').mockImplementation(run);
+		});
+		expect(await stub.getFinalizedTranscript(sessionId)).toBe('');
+		expect((await send(wav(), { 'X-Segment-Index': '0', 'X-Start-Ms': '100', 'X-End-Ms': '1100' })).status).toBe(200);
+		expect((await send(wav(), { 'X-Segment-Index': '1', 'X-Start-Ms': '2100', 'X-End-Ms': '3100' })).status).toBe(200);
+		expect((await send(wav(), { 'X-Segment-Index': '2', 'X-Start-Ms': '1100', 'X-End-Ms': '2100' })).status).toBe(200);
+		expect(await stub.getFinalizedTranscript(sessionId)).toBe(
+			`[00:00:01] speaker=${speakerId}: 前半\n[00:00:02] speaker=${speakerId}: 後半`,
+		);
+		await stub.markProcessingStarted(sessionId);
+		expect(await stub.getFinalizedTranscript(sessionId)).toBeNull();
+		await stub.completeSession(sessionId, { endedAt: new Date().toISOString(), durationMs: 3100, manifestSizeBytes: 1 });
+		const resumed = await stub.startSession(guildId, (await stub.getLatestSession())!.channelId, crypto.randomUUID(), parentPageId);
+		expect(resumed.ok && resumed.resumed).toBe(true);
+		if (!resumed.ok) throw new Error('Session resume failed');
+		await stub.markRecordingStarted(sessionId);
+		expect(await stub.getFinalizedTranscript(sessionId)).toBe(
+			`[00:00:01] speaker=${speakerId}: 前半\n[00:00:02] speaker=${speakerId}: 後半`,
+		);
+	});
+
 	it('persists audio before inference, saves text, and caches identical retries', async () => {
 		const { stub, key, send } = await setup();
 		const run = vi.fn(async () => {
