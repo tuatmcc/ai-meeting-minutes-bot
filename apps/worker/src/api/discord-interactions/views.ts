@@ -14,7 +14,7 @@ export function commandMessageAsComponentsV2(message: CommandMessage): RESTPatch
 		typeof message === 'string' ? [] : (message.components ?? []).filter((component) => component.type === ComponentType.ActionRow);
 	const components = embed
 		? [
-				...(embed.title ? [{ type: ComponentType.TextDisplay as const, content: `# ${embed.title}` }] : []),
+				...(embed.title ? [{ type: ComponentType.TextDisplay as const, content: `## ${embed.title}` }] : []),
 				...(embed.description ? [{ type: ComponentType.TextDisplay as const, content: embed.description }] : []),
 				...(embed.fields ?? []).map((field) => ({
 					type: ComponentType.TextDisplay as const,
@@ -43,7 +43,7 @@ export function meetingMessage(
 				components: [
 					{
 						type: ComponentType.TextDisplay as ComponentType.TextDisplay,
-						content: '# 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
+						content: '## 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
 					},
 					...(notice ? [{ type: ComponentType.TextDisplay as const, content: `✅ ${notice}` }] : []),
 					{
@@ -94,7 +94,7 @@ export function notionDatabasePickerMessage(
 	notice?: string,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
-		{ type: ComponentType.TextDisplay, content: '# Notion の保存先を選択' },
+		{ type: ComponentType.TextDisplay, content: '## Notion の保存先を選択' },
 		{ type: ComponentType.TextDisplay, content: notice ?? '議事録を保存するデータベースを選んでください。' },
 	];
 	if (databases.length > 0) {
@@ -149,7 +149,7 @@ export function notionParentPagePickerMessage(
 	notice?: string,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
-		{ type: ComponentType.TextDisplay, content: '# 録音する会議の親ページを選択' },
+		{ type: ComponentType.TextDisplay, content: '## 録音する会議の親ページを選択' },
 		{
 			type: ComponentType.TextDisplay,
 			content: `データベース: **${databaseTitle}**\n選んだページの下に AI 議事録を作成し、録音を開始します。`,
