@@ -25,8 +25,15 @@ type DiscordInteraction = {
 	data?: {
 		name?: string;
 		custom_id?: string;
+		values?: string[];
 		options?: Array<{ name?: string; type?: number; value?: unknown; focused?: boolean }>;
 	};
+};
+
+type ComponentContext = {
+	guildId: string;
+	channelId: string;
+	canManageGuild: boolean;
 };
 
 type ParsedCommand = {
@@ -83,14 +90,10 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 		return Response.json({ type: 1 });
 	}
 	if (value.type === 3) {
-		if (
-			!value.token ||
-			!SNOWFLAKE_PATTERN.test(value.id) ||
-			(value.data?.custom_id !== 'meeting_setup_notion' && value.data?.custom_id !== 'meeting_setup_discord')
-		) {
+		if (!value.token || !SNOWFLAKE_PATTERN.test(value.id)) {
 			return interactionMessage('この操作には対応していません。');
 		}
-		return Response.json({ type: 6 });
+		return handleComponentInteraction(value, env, ctx);
 	}
 	if (value.type === 4) {
 		if (!value.token || !SNOWFLAKE_PATTERN.test(value.id)) {
@@ -164,59 +167,7 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 	}
 	if (command.action === 'meeting') {
 		const database = await session.getNotionDatabase();
-		return {
-			flags: MessageFlags.IsComponentsV2,
-			components: [
-				{
-					type: ComponentType.Container,
-					accent_color: 0x5865f2,
-					components: [
-						{
-							type: ComponentType.TextDisplay,
-							content: '# 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
-						},
-						{
-							type: ComponentType.TextDisplay,
-							content: `**現在の VC**\n<#${command.channelId}>\n\n**保存先**\n${database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？'}`,
-						},
-						{ type: ComponentType.Separator, spacing: SeparatorSpacingSize.Small },
-						{
-							type: ComponentType.Section,
-							components: [
-								{
-									type: ComponentType.TextDisplay,
-									content:
-										'**Notion に議事録を保存**\n指定したデータベースに会議ごとの議事録を自動作成します。DB設定には `/meeting_link_notion_db` を使います。',
-								},
-							],
-							accessory: {
-								type: ComponentType.Button,
-								style: ButtonStyle.Secondary,
-								label: 'Notion に議事録を保存',
-								custom_id: 'meeting_setup_notion',
-								emoji: { name: '📖' },
-							},
-						},
-						{
-							type: ComponentType.Section,
-							components: [
-								{
-									type: ComponentType.TextDisplay,
-									content: '**Discord だけで使う**\n議事録を Discord に投稿します。Notion は後から連携できます。',
-								},
-							],
-							accessory: {
-								type: ComponentType.Button,
-								style: ButtonStyle.Secondary,
-								label: 'Discord だけで使う',
-								custom_id: 'meeting_setup_discord',
-								emoji: { name: '💬' },
-							},
-						},
-					],
-				},
-			],
-		};
+		return meetingMessage(command.channelId, database);
 	}
 	if (command.action === 'start') {
 		const notionParentPageId = command.notionParentPageId;
@@ -331,6 +282,246 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 	};
 	return {
 		embeds: [embed],
+	};
+}
+
+async function handleComponentInteraction(interaction: DiscordInteraction, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+	const customId = interaction.data?.custom_id;
+	if (customId === 'meeting_setup_discord') return Response.json({ type: 6 });
+
+	const componentContext = parseComponentContext(interaction);
+	if (!componentContext) return interactionMessage('この操作には対応していません。');
+	if (customId === 'meeting_setup_notion' || customId === 'meeting_select_notion_database') {
+		if (!componentContext.canManageGuild) return interactionMessage('Notion の保存先を設定するにはサーバー管理権限が必要です。');
+		if (customId === 'meeting_select_notion_database') {
+			const selectedId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
+			if (!selectedId) return interactionMessage('Notion データベースを候補から選択してください。');
+			ctx.waitUntil(saveNotionDatabase(interaction, componentContext, selectedId, env));
+		} else {
+			ctx.waitUntil(showNotionDatabasePicker(interaction, componentContext, env));
+		}
+		return Response.json({ type: 6 });
+	}
+	if (customId === 'meeting_setup_cancel') {
+		ctx.waitUntil(showMeetingMessage(interaction, componentContext, env));
+		return Response.json({ type: 6 });
+	}
+	return interactionMessage('この操作には対応していません。');
+}
+
+function parseComponentContext(interaction: DiscordInteraction): ComponentContext | null {
+	const guildId = interaction.guild_id;
+	const channelId = interaction.channel_id;
+	const sourceChannel = interaction.channel;
+	if (
+		!guildId ||
+		!SNOWFLAKE_PATTERN.test(guildId) ||
+		!channelId ||
+		!SNOWFLAKE_PATTERN.test(channelId) ||
+		(sourceChannel !== undefined &&
+			(sourceChannel.id !== channelId ||
+				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
+				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId)))
+	) {
+		return null;
+	}
+	const permissions = interaction.member?.permissions;
+	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
+	return { guildId, channelId, canManageGuild };
+}
+
+async function showNotionDatabasePicker(
+	interaction: DiscordInteraction,
+	componentContext: ComponentContext,
+	env: WorkerEnv,
+): Promise<void> {
+	if (!interaction.token) return;
+	if (!env.NOTION_API_TOKEN) {
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionDatabasePickerMessage([], 'Notion 連携が設定されていません。'),
+		);
+		return;
+	}
+	try {
+		const databases = await searchNotionDataSources(env, '');
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, notionDatabasePickerMessage(databases));
+	} catch (error) {
+		console.error('[notion] database search failed', error instanceof Error ? error.name : 'unknown error');
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionDatabasePickerMessage([], 'Notion データベースを取得できませんでした。時間をおいて再試行してください。'),
+		);
+	}
+}
+
+async function saveNotionDatabase(
+	interaction: DiscordInteraction,
+	componentContext: ComponentContext,
+	databaseId: string,
+	env: WorkerEnv,
+): Promise<void> {
+	if (!interaction.token) return;
+	try {
+		const database = await getNotionDataSource(env, databaseId);
+		if (!database) {
+			await editOriginalResponse(
+				env.DISCORD_APPLICATION_ID,
+				interaction.token,
+				notionDatabasePickerMessage([], '選択したデータベースを取得できませんでした。もう一度選択してください。'),
+			);
+			return;
+		}
+		const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
+		await session.setNotionDatabase(database);
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			meetingMessage(componentContext.channelId, database, 'Notion の保存先を設定しました。'),
+		);
+	} catch (error) {
+		console.error('[notion] database save failed', error instanceof Error ? error.name : 'unknown error');
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionDatabasePickerMessage([], 'Notion の保存先を設定できませんでした。時間をおいて再試行してください。'),
+		);
+	}
+}
+
+async function showMeetingMessage(interaction: DiscordInteraction, componentContext: ComponentContext, env: WorkerEnv): Promise<void> {
+	if (!interaction.token) return;
+	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
+	const database = await session.getNotionDatabase();
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage(componentContext.channelId, database));
+}
+
+function meetingMessage(
+	channelId: string,
+	database: { title: string } | null,
+	notice?: string,
+): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	return {
+		flags: MessageFlags.IsComponentsV2,
+		components: [
+			{
+				type: ComponentType.Container,
+				accent_color: 0x5865f2,
+				components: [
+					{
+						type: ComponentType.TextDisplay,
+						content: '# 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
+					},
+					...(notice ? [{ type: ComponentType.TextDisplay as const, content: `✅ ${notice}` }] : []),
+					{
+						type: ComponentType.TextDisplay,
+						content: `**現在の VC**\n<#${channelId}>\n\n**保存先**\n${database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？'}`,
+					},
+					{ type: ComponentType.Separator, spacing: SeparatorSpacingSize.Small },
+					{
+						type: ComponentType.Section,
+						components: [
+							{
+								type: ComponentType.TextDisplay,
+								content: '**Notion に議事録を保存**\n保存先のデータベースを選ぶと、会議ごとの議事録を自動作成します。',
+							},
+						],
+						accessory: {
+							type: ComponentType.Button,
+							style: ButtonStyle.Secondary,
+							label: 'Notion に議事録を保存',
+							custom_id: 'meeting_setup_notion',
+							emoji: { name: '📖' },
+						},
+					},
+					{
+						type: ComponentType.Section,
+						components: [
+							{
+								type: ComponentType.TextDisplay,
+								content: '**Discord だけで使う**\n議事録を Discord に投稿します。Notion は後から連携できます。',
+							},
+						],
+						accessory: {
+							type: ComponentType.Button,
+							style: ButtonStyle.Secondary,
+							label: 'Discord だけで使う',
+							custom_id: 'meeting_setup_discord',
+							emoji: { name: '💬' },
+						},
+					},
+				],
+			},
+		],
+	};
+}
+
+function notionDatabasePickerMessage(
+	databases: Array<{ id: string; title: string; parentTitle: string | null }>,
+	notice?: string,
+): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	return {
+		flags: MessageFlags.IsComponentsV2,
+		components: [
+			{
+				type: ComponentType.Container,
+				accent_color: 0x5865f2,
+				components: [
+					{ type: ComponentType.TextDisplay, content: '# Notion の保存先を選択' },
+					{ type: ComponentType.TextDisplay, content: notice ?? '議事録を保存するデータベースを選んでください。' },
+					...(databases.length > 0
+						? [
+								{
+									type: ComponentType.ActionRow as const,
+									components: [
+										{
+											type: ComponentType.StringSelect,
+											custom_id: 'meeting_select_notion_database',
+											placeholder: 'Notion データベースを選択',
+											options: databases.map((database) => ({
+												label: formatNotionDataSourceLabel(database.parentTitle, database.title),
+												value: database.id,
+											})),
+											min_values: 1,
+											max_values: 1,
+										},
+									],
+								},
+							]
+						: notice
+							? []
+							: [
+									{
+										type: ComponentType.TextDisplay,
+										content: 'Botに共有されているデータベースが見つかりませんでした。Notionの共有設定を確認して再試行してください。',
+									},
+								]),
+					{
+						type: ComponentType.ActionRow,
+						components: [
+							{
+								type: ComponentType.Button,
+								style: ButtonStyle.Secondary,
+								label: '戻る',
+								custom_id: 'meeting_setup_cancel',
+							},
+							...(databases.length === 0
+								? [
+										{
+											type: ComponentType.Button as const,
+											style: ButtonStyle.Primary,
+											label: '再試行',
+											custom_id: 'meeting_setup_notion',
+										},
+									]
+								: []),
+						],
+					},
+				],
+			},
+		],
 	};
 }
 
@@ -543,6 +734,7 @@ function isApplicationCommandData(value: unknown): boolean {
 	return (
 		(data.name === undefined || typeof data.name === 'string') &&
 		(data.custom_id === undefined || typeof data.custom_id === 'string') &&
+		(data.values === undefined || (Array.isArray(data.values) && data.values.every((item) => typeof item === 'string'))) &&
 		(data.options === undefined || (Array.isArray(data.options) && data.options.every(isApplicationCommandOption)))
 	);
 }
