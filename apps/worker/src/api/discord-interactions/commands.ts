@@ -41,8 +41,9 @@ export async function processCommand(
 	}
 
 	const response = typeof message === 'string' ? { content: message } : message;
+	const responseUsesComponentsV2 = preserveComponentsV2 || (command.action === 'start' && typeof message !== 'string');
 	if (publishStartFollowup && command.action === 'start' && typeof message !== 'string') {
-		const followup = preserveComponentsV2 ? commandMessageAsComponentsV2(message) : response;
+		const followup = commandMessageAsComponentsV2(message);
 		const published = await createFollowupMessage(env.DISCORD_APPLICATION_ID, token, followup);
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
@@ -53,7 +54,11 @@ export async function processCommand(
 		);
 		return;
 	}
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, preserveComponentsV2 ? commandMessageAsComponentsV2(message) : response);
+	await editOriginalResponse(
+		env.DISCORD_APPLICATION_ID,
+		token,
+		responseUsesComponentsV2 ? commandMessageAsComponentsV2(message) : response,
+	);
 }
 
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {

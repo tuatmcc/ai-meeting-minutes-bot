@@ -176,7 +176,7 @@ export async function createFollowupMessage(
 ): Promise<boolean> {
 	try {
 		const response = await fetch(
-			`${DISCORD_API_BASE}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}?wait=true`,
+			`${DISCORD_API_BASE}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}?wait=true&with_components=true`,
 			{
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
