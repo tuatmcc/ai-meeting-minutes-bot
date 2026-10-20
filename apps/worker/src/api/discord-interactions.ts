@@ -1,3 +1,4 @@
+import type { APIEmbed, APIInteractionResponse, RESTPatchAPIInteractionOriginalResponseJSONBody } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../env.js';
 import type { VoiceSession } from '../sessions/types.js';
 import { summarizeForCatchUp } from '../ai/summaries.js';
@@ -35,14 +36,7 @@ type ParsedCommand = {
 	canManageGuild: boolean;
 };
 
-type DiscordEmbed = {
-	title: string;
-	description?: string;
-	color?: number;
-	fields?: Array<{ name: string; value: string; inline?: boolean }>;
-};
-
-type InteractionMessage = string | { content?: string; embeds?: DiscordEmbed[] };
+type CommandMessage = string | RESTPatchAPIInteractionOriginalResponseJSONBody;
 
 type CommandParseResult = { ok: true; command: ParsedCommand } | { ok: false; reason: 'unsupported' };
 
@@ -108,7 +102,11 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 
 	const command = parsed.command;
 	ctx.waitUntil(processCommand(command, value, env));
-	return Response.json({ type: 5, data: command.action === 'start' ? {} : { flags: 64 } });
+	const deferredResponse: APIInteractionResponse = {
+		type: 5,
+		...(command.action === 'start' ? {} : { data: { flags: 64 } }),
+	};
+	return Response.json(deferredResponse);
 }
 
 async function processCommand(command: ParsedCommand, interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
@@ -118,10 +116,12 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 	}
 
 	if (command.action === 'imakita') {
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, '今北産業を作成しています。文字起こしの確定を待つ場合があります。');
+		await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, {
+			content: '今北産業を作成しています。文字起こしの確定を待つ場合があります。',
+		});
 	}
 
-	let message: InteractionMessage;
+	let message: CommandMessage;
 	try {
 		message = await executeCommand(command, interaction.id, env);
 	} catch (error) {
@@ -137,10 +137,10 @@ async function processCommand(command: ParsedCommand, interaction: DiscordIntera
 		message = 'コマンドを処理できませんでした。しばらくしてからもう一度お試しください。';
 	}
 
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, message);
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, typeof message === 'string' ? { content: message } : message);
 }
 
-async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<InteractionMessage> {
+async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 	if (command.action === 'link_notion_db') {
 		if (!command.canManageGuild) return 'Notion DBを設定するにはサーバー管理権限が必要です。';
@@ -193,27 +193,26 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 
 		const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
 		const aiPageUrl = notionPageUrl ?? (notionPageId ? notionUrl(notionPageId) : null);
-		return {
-			embeds: [
+		const embed: APIEmbed = {
+			title: result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
+			description: queued.gatewayConnected
+				? `${action}: <#${command.channelId}>`
+				: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
+			color: 0x5865f2,
+			fields: [
+				{ name: '対象の議事録', value: `[Notionで開く](${notionUrl(notionParentPageId)})` },
 				{
-					title: result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
-					description: queued.gatewayConnected
-						? `${action}: <#${command.channelId}>`
-						: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
-					color: 0x5865f2,
-					fields: [
-						{ name: '対象の議事録', value: `[Notionで開く](${notionUrl(notionParentPageId)})` },
-						{
-							name: 'AI議事録',
-							value: aiPageUrl
-								? `[Notionで開く](${aiPageUrl})`
-								: notionPageCreationFailed
-									? 'ページの作成に失敗しました。録音終了後に再試行します。'
-									: 'ページは録音終了後に更新します。',
-						},
-					],
+					name: 'AI議事録',
+					value: aiPageUrl
+						? `[Notionで開く](${aiPageUrl})`
+						: notionPageCreationFailed
+							? 'ページの作成に失敗しました。録音終了後に再試行します。'
+							: 'ページは録音終了後に更新します。',
 				},
 			],
+		};
+		return {
+			embeds: [embed],
 		};
 	}
 
@@ -542,7 +541,11 @@ function interactionMessage(content: string): Response {
 	return Response.json({ type: 4, data: { content, flags: 64 } });
 }
 
-async function editOriginalResponse(applicationId: string, token: string, message: InteractionMessage): Promise<void> {
+async function editOriginalResponse(
+	applicationId: string,
+	token: string,
+	message: RESTPatchAPIInteractionOriginalResponseJSONBody,
+): Promise<void> {
 	try {
 		const response = await fetch(
 			`${DISCORD_API_BASE}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}/messages/@original`,
