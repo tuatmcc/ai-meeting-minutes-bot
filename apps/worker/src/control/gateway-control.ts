@@ -8,6 +8,12 @@ type CommandRow = {
 	state: 'pending' | 'in_flight';
 };
 
+type ActiveSessionRow = {
+	session_id: string;
+	guild_id: string;
+	channel_id: string;
+};
+
 type GatewayAttachment = {
 	authenticated: boolean;
 };
@@ -27,6 +33,13 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			)
 		`);
 		ctx.storage.sql.exec('CREATE INDEX IF NOT EXISTS commands_by_state ON commands(state, created_at)');
+		ctx.storage.sql.exec(`
+			CREATE TABLE IF NOT EXISTS active_sessions (
+				session_id TEXT PRIMARY KEY,
+				guild_id TEXT NOT NULL,
+				channel_id TEXT NOT NULL
+			)
+		`);
 	}
 
 	async enqueueCommand(command: GatewayCommand): Promise<GatewayEnqueueResult> {
@@ -118,13 +131,60 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			return;
 		}
 
+		const command = JSON.parse(inFlight.payload) as GatewayCommand;
+		if (command.action === 'start') {
+			this.ctx.storage.sql.exec(
+				`INSERT OR REPLACE INTO active_sessions (session_id, guild_id, channel_id)
+				 VALUES (?, ?, ?)`,
+				command.sessionId,
+				command.guildId,
+				command.channelId,
+			);
+		} else if (command.action === 'stop') {
+			this.ctx.storage.sql.exec('DELETE FROM active_sessions WHERE session_id = ?', command.sessionId);
+		}
 		this.ctx.storage.sql.exec("DELETE FROM commands WHERE command_id = ? AND state = 'in_flight'", frame.commandId);
 		console.log('[gateway-control] command acknowledged', { commandId: frame.commandId });
 		await this.dispatchNext();
 	}
 
-	webSocketClose(_socket: WebSocket, code: number, reason: string, wasClean: boolean): void {
+	async webSocketClose(socket: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
 		console.warn('[gateway-control] socket closed', { code, reason, wasClean });
+		const attachment = socket.deserializeAttachment() as GatewayAttachment | null;
+		if (!attachment?.authenticated || this.authenticatedGatewaySocket()) {
+			return;
+		}
+
+		const sessions = new Map<string, ActiveSessionRow>();
+		for (const session of this.ctx.storage.sql.exec<ActiveSessionRow>('SELECT * FROM active_sessions').toArray()) {
+			sessions.set(session.session_id, session);
+		}
+
+		const inFlight = this.ctx.storage.sql
+			.exec<CommandRow>("SELECT * FROM commands WHERE state = 'in_flight' ORDER BY created_at, rowid LIMIT 1")
+			.toArray()[0];
+		if (inFlight) {
+			const command = JSON.parse(inFlight.payload) as GatewayCommand;
+			sessions.set(command.sessionId, {
+				session_id: command.sessionId,
+				guild_id: command.guildId,
+				channel_id: command.channelId,
+			});
+		}
+
+		for (const session of sessions.values()) {
+			try {
+				await this.env.VOICE_CHANNEL_SESSION.getByName(`${session.guild_id}:${session.channel_id}`).failSessionForGatewayDisconnect(
+					session.session_id,
+				);
+				this.ctx.storage.sql.exec('DELETE FROM active_sessions WHERE session_id = ?', session.session_id);
+			} catch (error) {
+				console.error('[gateway-control] failed to end disconnected gateway session', {
+					sessionId: session.session_id,
+					error: error instanceof Error ? error.name : 'unknown',
+				});
+			}
+		}
 	}
 
 	webSocketError(socket: WebSocket): void {

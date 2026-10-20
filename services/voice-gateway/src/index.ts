@@ -238,6 +238,11 @@ async function stopRecording(recording: ActiveRecording): Promise<void> {
 }
 
 async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
+	if (shuttingDown && command.action === 'start') {
+		logger.info({ sessionId: command.sessionId }, 'Ignored recording start during shutdown');
+		return;
+	}
+
 	if (command.action === 'imakita') {
 		const recording = activeRecordings.get(command.sessionId);
 		let content: string;
@@ -330,10 +335,11 @@ async function shutdown(): Promise<void> {
 	shuttingDown = true;
 	logger.info({ activeRecordingCount: activeRecordings.size }, 'Shutting down voice gateway');
 	try {
-		await gatewayControl?.stop();
-		await gatewayControlTask;
+		await gatewayControl?.drain();
 		await Promise.all([...activeRecordings.values()].map((recording) => stopRecording(recording)));
 	} finally {
+		await gatewayControl?.stop();
+		await gatewayControlTask;
 		await client.destroy();
 		logger.info('Voice gateway shutdown complete');
 	}

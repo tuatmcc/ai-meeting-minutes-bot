@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { WorkerEnv } from '../env.js';
-import { createMeetingPage, publishMeetingToNotion, type CreatedMeetingPage } from '../notion/meeting-pages.js';
+import { createMeetingPage, markMeetingPageFailed, publishMeetingToNotion, type CreatedMeetingPage } from '../notion/meeting-pages.js';
 import type { NotionPageStatus, SessionOperation, SessionState, VoiceSession } from './types.js';
 import {
 	isValidAudio,
@@ -558,6 +558,22 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			);
 		}
 		return { ok: true, session: toSession(this.findBySessionId(sessionId)!) };
+	}
+
+	async failSessionForGatewayDisconnect(sessionId: string): Promise<void> {
+		const result = await this.failSession(sessionId, 'gateway_disconnected');
+		if (!result.ok || result.session.errorCode !== 'gateway_disconnected' || !result.session.notionPageId || !this.env.NOTION_API_TOKEN) {
+			return;
+		}
+
+		try {
+			await markMeetingPageFailed(this.env, result.session, 'gateway_disconnected');
+		} catch (error) {
+			console.error(
+				`[notion] failed session page update failed for ${sessionId}`,
+				error instanceof Error ? error.message : 'unknown error',
+			);
+		}
 	}
 
 	async alarm(): Promise<void> {

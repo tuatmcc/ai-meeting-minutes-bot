@@ -75,6 +75,10 @@ export class GatewayControlClient {
 		await this.pendingCommand;
 	}
 
+	async drain(): Promise<void> {
+		await this.pendingCommand;
+	}
+
 	private connectOnce(): Promise<void> {
 		return new Promise((resolve, reject) => {
 			logger.info('Connecting to gateway control');
