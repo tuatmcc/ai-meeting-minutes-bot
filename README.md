@@ -4,7 +4,7 @@ Discord 上の会議音声を文字起こしし、Workers AI で議事録を作�
 
 ## 構成
 
-- `services/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
+- `apps/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
 - `apps/worker`: Discord コマンド、Durable Objects によるセッション管理、Workers AI Whisper による文字起こし、AI 議事録生成と Notion 保存を提供します。
 
 ```text
@@ -20,7 +20,7 @@ Cloudflare Worker → R2 に一時保存 → Workers AI Whisper
 
 話者別 buffer は無音区間で区切り、10〜60秒程度で送信します。短い発話も開始から60秒経過した時点か、録音停止時に送信します。Worker への送信は録音と並行して行い、各リクエストで文字起こし結果を受け取ります。Cloudflare Queues は使用しません。
 
-Worker と gateway 間の HTTP 契約は [`packages/contracts/openapi.yaml`](packages/contracts/openapi.yaml) を参照してください。Discord コマンドには `meeting_` プレフィックスが付きます。`/meeting_start`・`/meeting_stop` で録音を操作し、`/meeting_status` で状態を確認、`/meeting_imakita` で確定済みの文字起こしを要約します。VCごとに `/meeting_link_notion_db` で議事録DBを設定し、`/meeting_start` ではそのDB内の手動作成済み議事録を選択します。停止後10分以内に同じ親項目を選んで `/meeting_start` すると、同じ録音セッションを再開して文字起こしを継続します。AI議事録は選択した項目ごとに1ページを作成し、以降の会議では同じページを更新します。保存失敗は `/meeting_notion_retry` で再試行できます。
+Worker と gateway 間の HTTP 契約は [`contracts/openapi.yaml`](contracts/openapi.yaml) を参照してください。Discord コマンドには `meeting_` プレフィックスが付きます。`/meeting_start`・`/meeting_stop` で録音を操作し、`/meeting_status` で状態を確認、`/meeting_imakita` で確定済みの文字起こしを要約します。VCごとに `/meeting_link_notion_db` で議事録DBを設定し、`/meeting_start` ではそのDB内の手動作成済み議事録を選択します。停止後10分以内に同じ親項目を選んで `/meeting_start` すると、同じ録音セッションを再開して文字起こしを継続します。AI議事録は選択した項目ごとに1ページを作成し、以降の会議では同じページを更新します。保存失敗は `/meeting_notion_retry` で再試行できます。
 
 ## セルフホスト Gateway の起動
 
@@ -29,7 +29,7 @@ Docker と Docker Compose が使える常時稼働ホストを用意します。
 リポジトリのルートで環境ファイルを作成します。
 
 ```sh
-cp services/voice-gateway/production.env.example services/voice-gateway/production.env
+cp apps/voice-gateway/production.env.example apps/voice-gateway/production.env
 ```
 
 `production.env` に次を設定します。秘密情報を含むため Git にコミットしないでください。
@@ -43,8 +43,8 @@ Compose は既存の外部ネットワーク `server_default` に参加します
 
 ```sh
 docker network create server_default
-docker compose -f services/voice-gateway/compose.yaml up -d --build
-docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
+docker compose -f apps/voice-gateway/compose.yaml up -d --build
+docker compose -f apps/voice-gateway/compose.yaml logs -f voice-gateway
 ```
 
 ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。文字起こし用コンテナや GPU の設定は不要です。
@@ -54,5 +54,5 @@ docker compose -f services/voice-gateway/compose.yaml logs -f voice-gateway
 停止は次のコマンドで行います。失敗時のデータを保持するため `down -v` は実行しないでください。
 
 ```sh
-docker compose -f services/voice-gateway/compose.yaml down
+docker compose -f apps/voice-gateway/compose.yaml down
 ```

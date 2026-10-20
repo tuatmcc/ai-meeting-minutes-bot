@@ -6,11 +6,11 @@ WORKDIR /app
 COPY . .
 
 RUN pnpm install --filter @ai-meeting-minutes/voice-gateway... --frozen-lockfile \
-	&& mkdir -p services/voice-gateway/var/recordings \
-	&& chown -R node:node services/voice-gateway/var
+	&& mkdir -p apps/voice-gateway/var/recordings \
+	&& chown -R node:node apps/voice-gateway/var
 
 USER node
 
-WORKDIR /app/services/voice-gateway
+WORKDIR /app/apps/voice-gateway
 
 CMD ["node", "--experimental-transform-types", "src/index.ts"]
