@@ -1,3 +1,7 @@
+import { logger as baseLogger } from '../logger.ts';
+
+const logger = baseLogger.child({ component: 'gateway-control' });
+
 type BaseGatewayCommand = {
 	commandId: string;
 	guildId: string;
@@ -45,7 +49,7 @@ export class GatewayControlClient {
 			try {
 				await this.connectOnce();
 			} catch (error) {
-				console.error('[gateway-control] connection failed', error instanceof Error ? error.message : error);
+				logger.error({ err: error }, 'Gateway control connection failed');
 			}
 
 			if (this.stopping) {
@@ -54,7 +58,7 @@ export class GatewayControlClient {
 			if (Date.now() - connectedAt >= 60_000) {
 				delayMs = INITIAL_RECONNECT_DELAY_MS;
 			}
-			console.log(`[gateway-control] reconnecting in ${delayMs}ms`);
+			logger.info({ delayMs }, 'Reconnecting to gateway control');
 			await this.waitForReconnectDelay(delayMs);
 			delayMs = Math.min(delayMs * 2, MAX_RECONNECT_DELAY_MS);
 		}
@@ -73,6 +77,7 @@ export class GatewayControlClient {
 
 	private connectOnce(): Promise<void> {
 		return new Promise((resolve, reject) => {
+			logger.info('Connecting to gateway control');
 			const socket = new WebSocket(this.url);
 			this.socket = socket;
 			let authenticated = false;
@@ -125,7 +130,7 @@ export class GatewayControlClient {
 							clearTimeout(authTimeout);
 							heartbeatTimer = setInterval(() => {
 								if (Date.now() - lastHeartbeatAckAt >= HEARTBEAT_TIMEOUT_MS) {
-									console.warn('[gateway-control] heartbeat timed out; reconnecting');
+									logger.warn('Gateway control heartbeat timed out; reconnecting');
 									finish();
 									socket.close(1011, 'Gateway control heartbeat timed out');
 									return;
@@ -139,7 +144,7 @@ export class GatewayControlClient {
 									}
 								}
 							}, HEARTBEAT_INTERVAL_MS);
-							console.log('[gateway-control] connected');
+							logger.info('Connected to gateway control');
 							return;
 						}
 
@@ -166,21 +171,35 @@ export class GatewayControlClient {
 								if (commandFailed) {
 									return;
 								}
-								console.log(`[gateway-control] command received: ${message.command.action} ${message.command.sessionId}`);
+								logger.info(
+									{ action: message.command.action, commandId: message.command.commandId, sessionId: message.command.sessionId },
+									'Gateway command received',
+								);
 								await this.onCommand(message.command);
 								if (socket.readyState === WebSocket.OPEN) {
 									socket.send(JSON.stringify({ type: 'ack', commandId: message.command.commandId }));
-									console.log(`[gateway-control] command acknowledged: ${message.command.action} ${message.command.sessionId}`);
+									logger.info(
+										{ action: message.command.action, commandId: message.command.commandId, sessionId: message.command.sessionId },
+										'Gateway command acknowledged',
+									);
 								}
 							})
 							.catch((error: unknown) => {
 								commandFailed = true;
-								console.error('[gateway-control] command failed; leaving it unacknowledged', error);
+								logger.error(
+									{
+										err: error,
+										action: message.command.action,
+										commandId: message.command.commandId,
+										sessionId: message.command.sessionId,
+									},
+									'Gateway command failed; leaving it unacknowledged',
+								);
 								socket.close(1011, 'command handling failed');
 							});
 					})
 					.catch((error: unknown) => {
-						console.error('[gateway-control] invalid message', error instanceof Error ? error.message : error);
+						logger.warn({ err: error }, 'Invalid gateway control message');
 						socket.close(1003, 'invalid gateway control message');
 					});
 			});
@@ -193,7 +212,7 @@ export class GatewayControlClient {
 			});
 
 			socket.addEventListener('close', (event) => {
-				console.log(`[gateway-control] disconnected (${event.code})`);
+				logger.info({ code: event.code, reason: event.reason, wasClean: event.wasClean }, 'Disconnected from gateway control');
 				finish(authenticated ? undefined : new Error('Gateway control closed before authentication'));
 			});
 		});

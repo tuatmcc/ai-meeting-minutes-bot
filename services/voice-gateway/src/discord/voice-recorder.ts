@@ -3,6 +3,9 @@ import Prism from 'prism-media';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StreamAudioEncoder } from '../audio/stream-audio-encoder.ts';
+import { logger as baseLogger } from '../logger.ts';
+
+const logger = baseLogger.child({ component: 'voice-recorder' });
 const stereoAudioFormat = { sampleRate: 48_000, channels: 2, frameSamples: 960 };
 type VoiceReceiveStats = { framesReceived: number; bytesReceived: number };
 
@@ -89,16 +92,17 @@ export class VoiceRecorder {
 		};
 
 		this.activeStreams.set(userId, activeStream);
+		logger.debug({ sessionId: this.sessionId, userId }, 'Speaker audio stream started');
 		stream.pipe(decoder);
 		decoder.on('data', (chunk: Buffer) => this.handleDecodedPcm(activeStream, chunk));
 		decoder.once('end', () => this.cleanupStream(userId, activeStream));
 		decoder.once('error', (error) => {
-			console.error(`[voice] Opus decode failed for user ${userId}`, error);
+			logger.error({ err: error, sessionId: this.sessionId, userId }, 'Opus decode failed');
 			this.failure ??= error;
 			this.cleanupStream(userId, activeStream);
 		});
 		stream.once('error', (error) => {
-			console.error(`[voice] audio receive failed for user ${userId}`, error);
+			logger.error({ err: error, sessionId: this.sessionId, userId }, 'Audio receive failed');
 			this.failure ??= error;
 			decoder.destroy(error);
 		});
@@ -129,6 +133,7 @@ export class VoiceRecorder {
 	private cleanupStream(userId: string, activeStream: ActiveUserStream): void {
 		if (this.activeStreams.get(userId) === activeStream) {
 			this.activeStreams.delete(userId);
+			logger.debug({ sessionId: this.sessionId, userId }, 'Speaker audio stream ended');
 		}
 	}
 

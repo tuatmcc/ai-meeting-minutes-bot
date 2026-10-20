@@ -1,6 +1,9 @@
 import { appendFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TranscriptionApi, TranscriptionSegmentMetadata, TranscriptionSession, TranscriptionResult } from './transcription-api.ts';
+import { logger as baseLogger } from '../logger.ts';
+
+const logger = baseLogger.child({ component: 'transcription-segmenter' });
 
 const SAMPLE_RATE = 16_000;
 const BYTES_PER_SAMPLE = 4;
@@ -161,7 +164,10 @@ export class TranscriptionSegmenter {
 				this.completedSegments.push(result);
 				await rm(`${prefix}.wav`);
 				await rm(`${prefix}.json`);
-				console.log(`[transcription] speaker ${metadata.speakerId} segment ${metadata.index} saved`);
+				logger.info(
+					{ sessionId: this.session.sessionId, speakerId: metadata.speakerId, segmentIndex: metadata.index },
+					'Transcription segment saved',
+				);
 			} catch (error) {
 				this.fail(error instanceof Error ? error : new Error(String(error)));
 			}
@@ -175,7 +181,7 @@ export class TranscriptionSegmenter {
 	private fail(error: Error): void {
 		if (this.failure) return;
 		this.failure = error;
-		console.error('[transcription] segment processing failed', error);
+		logger.error({ err: error, sessionId: this.session.sessionId }, 'Transcription segment processing failed');
 	}
 }
 
