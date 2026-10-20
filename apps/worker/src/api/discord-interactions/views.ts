@@ -1,4 +1,4 @@
-import { ButtonStyle, ComponentType, MessageFlags, SeparatorSpacingSize } from 'discord-api-types/v10';
+import { ButtonStyle, ComponentType, MessageFlags } from 'discord-api-types/v10';
 import type {
 	APIComponentInContainer,
 	APIMessageTopLevelComponent,
@@ -39,24 +39,23 @@ export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginal
 				components: [
 					{
 						type: ComponentType.TextDisplay as ComponentType.TextDisplay,
-						content: '## 議事録 Bot へようこそ\nこの Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
+						content: '## 📝 議事録を作成する\nボイスチャットの会話を文字起こしし、AI が議事録にまとめます。',
 					},
 					...(notice ? [{ type: ComponentType.TextDisplay as const, content: `✅ ${notice}` }] : []),
-					{ type: ComponentType.Separator, spacing: SeparatorSpacingSize.Small },
+					{ type: ComponentType.TextDisplay, content: '**議事録の保存先を選んでください。**' },
 					{
 						type: ComponentType.Section,
 						components: [
 							{
 								type: ComponentType.TextDisplay,
-								content: '**Notion に議事録を保存**\n会議ごとにデータベースと親ページを選び、議事録を自動作成します。',
+								content: '**📖 Notion に保存**\n議事録を Notion で整理・管理できます。\n会議ごとに保存先を選んで録音を開始します。',
 							},
 						],
 						accessory: {
 							type: ComponentType.Button,
-							style: ButtonStyle.Secondary,
-							label: 'Notion に議事録を保存',
+							style: ButtonStyle.Primary,
+							label: 'Notion の設定へ →',
 							custom_id: 'meeting_setup_notion',
-							emoji: { name: '📖' },
 						},
 					},
 					{
