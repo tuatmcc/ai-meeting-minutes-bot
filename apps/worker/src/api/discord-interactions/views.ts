@@ -81,6 +81,31 @@ export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginal
 	};
 }
 
+export function discordOnlyUnavailableMessage(): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	return {
+		flags: MessageFlags.IsComponentsV2,
+		components: [
+			{
+				type: ComponentType.Container,
+				accent_color: 0x5865f2,
+				components: [
+					{ type: ComponentType.TextDisplay, content: '## この機能はまだサポートされていません。' },
+					{
+						type: ComponentType.Section,
+						components: [{ type: ComponentType.TextDisplay, content: 'セットアップ画面に戻るには、こちらを押してください。' }],
+						accessory: {
+							type: ComponentType.Button,
+							style: ButtonStyle.Secondary,
+							label: '戻る',
+							custom_id: 'meeting_setup_cancel',
+						},
+					},
+				],
+			},
+		],
+	};
+}
+
 export function notionDatabasePickerMessage(
 	databases: Array<{ id: string; title: string; parentTitle: string | null }>,
 	notice?: string,
