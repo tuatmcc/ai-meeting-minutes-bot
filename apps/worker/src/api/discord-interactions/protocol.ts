@@ -168,3 +168,32 @@ export async function editOriginalResponse(
 		);
 	}
 }
+
+export async function createFollowupMessage(
+	applicationId: string,
+	token: string,
+	message: RESTPatchAPIInteractionOriginalResponseJSONBody,
+): Promise<boolean> {
+	try {
+		const response = await fetch(
+			`${DISCORD_API_BASE}/webhooks/${encodeURIComponent(applicationId)}/${encodeURIComponent(token)}?wait=true`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(message),
+			},
+		);
+		if (!response.ok) {
+			console.error(JSON.stringify({ message: 'Failed to create Discord interaction followup', status: response.status }));
+		}
+		return response.ok;
+	} catch (error) {
+		console.error(
+			JSON.stringify({
+				message: 'Failed to create Discord interaction followup',
+				error: error instanceof Error ? error.name : 'unknown',
+			}),
+		);
+		return false;
+	}
+}

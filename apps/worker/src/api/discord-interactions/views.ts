@@ -10,6 +10,8 @@ import type { CommandMessage } from './types.js';
 
 export function commandMessageAsComponentsV2(message: CommandMessage): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const embed = typeof message === 'string' ? undefined : message.embeds?.[0];
+	const actionRows =
+		typeof message === 'string' ? [] : (message.components ?? []).filter((component) => component.type === ComponentType.ActionRow);
 	const components = embed
 		? [
 				...(embed.title ? [{ type: ComponentType.TextDisplay as const, content: `# ${embed.title}` }] : []),
@@ -18,6 +20,7 @@ export function commandMessageAsComponentsV2(message: CommandMessage): RESTPatch
 					type: ComponentType.TextDisplay as const,
 					content: `**${field.name}**\n${field.value}`,
 				})),
+				...actionRows,
 			]
 		: [{ type: ComponentType.TextDisplay as const, content: typeof message === 'string' ? message : '録音を開始しました。' }];
 	return {
@@ -203,14 +206,38 @@ export function recordingEmbed(
 	}
 	const aiPageUrl = session.notionPageUrl ?? (session.notionPageId ? notionUrl(session.notionPageId) : null);
 	fields.push({
-		name: 'AI議事録',
+		name: '生成されたAI議事録',
 		value: aiPageUrl
 			? `[Notionで開く](${aiPageUrl})`
 			: notionPageCreationFailed
 				? 'ページの作成に失敗しました。録音終了後に再試行します。'
-				: 'AI議事録ページは未作成です。',
+				: '生成されたAI議事録ページは未作成です。',
 	});
 	return { title, description, color: 0x5865f2, fields };
+}
+
+export function recordingMessage(
+	title: string,
+	description: string,
+	session: Pick<VoiceSession, 'notionParentPageId' | 'notionPageId' | 'notionPageUrl'>,
+	notionPageCreationFailed: boolean,
+): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	return {
+		embeds: [recordingEmbed(title, description, session, notionPageCreationFailed)],
+		components: [
+			{
+				type: ComponentType.ActionRow,
+				components: [
+					{
+						type: ComponentType.Button,
+						style: ButtonStyle.Danger,
+						label: '録音を終了',
+						custom_id: 'meeting_stop',
+					},
+				],
+			},
+		],
+	};
 }
 
 export function formatSessionStatus(session: VoiceSession, gatewayStatus: 'connected' | 'disconnected'): string {
