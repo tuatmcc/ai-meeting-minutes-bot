@@ -254,31 +254,15 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 		channelId: command.channelId,
 		sessionId: active.sessionId,
 	});
-	let endingSession = active;
-	let notionPageCreationFailed = false;
-	if (active.notionParentPageId && !active.notionPageId) {
-		try {
-			const ensured = await session.ensureMeetingPage(active.sessionId);
-			if (!ensured.ok) throw new Error(`Could not create Notion page: ${ensured.code}`);
-			endingSession = ensured.session;
-			notionPageCreationFailed = !endingSession.notionPageId;
-		} catch (error) {
-			notionPageCreationFailed = true;
-			const message = error instanceof Error ? error.message : 'unknown error';
-			console.error('[notion] meeting page creation at stop failed', message);
-		}
-	}
+	const embed: APIEmbed = {
+		title: '録音終了要求を送信しました',
+		description: queued.gatewayConnected
+			? `録音の停止要求を送信しました: <#${command.channelId}>`
+			: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`,
+		color: 0x5865f2,
+	};
 	return {
-		embeds: [
-			recordingEmbed(
-				'録音終了要求を送信しました',
-				queued.gatewayConnected
-					? `録音の停止要求を送信しました: <#${command.channelId}>`
-					: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`,
-				endingSession,
-				notionPageCreationFailed,
-			),
-		],
+		embeds: [embed],
 	};
 }
 
