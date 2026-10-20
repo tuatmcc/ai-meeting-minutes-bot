@@ -3,7 +3,7 @@ import { getNotionDataSource, queryNotionDataSource, searchNotionDataSources } f
 import type { NotionDataSource } from '../../notion/meeting-pages.js';
 import { processCommand } from './commands.js';
 import { editOriginalResponse, interactionMessage, normalizeNotionPageId, SNOWFLAKE_PATTERN } from './protocol.js';
-import { meetingMessage, notionDatabasePickerMessage, notionParentPagePickerMessage } from './views.js';
+import { discordOnlyUnavailableMessage, meetingMessage, notionDatabasePickerMessage, notionParentPagePickerMessage } from './views.js';
 import type { ComponentContext, DiscordInteraction } from './types.js';
 
 export async function handleComponentInteraction(
@@ -12,7 +12,10 @@ export async function handleComponentInteraction(
 	ctx: ExecutionContext,
 ): Promise<Response> {
 	const customId = interaction.data?.custom_id;
-	if (customId === 'meeting_setup_discord') return Response.json({ type: 6 });
+	if (customId === 'meeting_setup_discord') {
+		ctx.waitUntil(showDiscordOnlyUnavailableMessage(interaction, env));
+		return Response.json({ type: 6 });
+	}
 
 	const componentContext = parseComponentContext(interaction);
 	if (!componentContext) return interactionMessage('この操作には対応していません。');
@@ -172,4 +175,9 @@ async function showNotionPagePicker(interaction: DiscordInteraction, env: Worker
 async function showMeetingMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
 	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage());
+}
+
+async function showDiscordOnlyUnavailableMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
+	if (!interaction.token) return;
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, discordOnlyUnavailableMessage());
 }
