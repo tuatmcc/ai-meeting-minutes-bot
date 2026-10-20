@@ -2,6 +2,7 @@
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
+import { MessageFlags } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../env.js';
 import { handleDiscordInteraction } from './discord-interactions.js';
 
@@ -26,7 +27,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe('meeting_imakita interaction', () => {
+describe('imakinta interaction', () => {
 	it('summarizes finalized transcript in Worker and edits the interaction response without queuing a Gateway command', async () => {
 		const { channelId } = await createSession('recording', '議題を決めた。田中さんが資料を作る。');
 		const run = vi.spyOn(env.AI, 'run').mockImplementation(async (_model, input) => {
@@ -42,9 +43,9 @@ describe('meeting_imakita interaction', () => {
 		expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } });
 		await flushInteractionTasks();
 
-		expect(edits.map(({ content }) => content)).toEqual([
-			'今北産業を作成しています。文字起こしの確定を待つ場合があります。',
-			'**今北産業**\n- 議題を決定し、田中さんが資料を作る。',
+		expect(edits.map(({ flags, content }) => ({ flags, content }))).toEqual([
+			{ flags: MessageFlags.IsComponentsV2, content: '今北産業を作成しています。文字起こしの確定を待つ場合があります。' },
+			{ flags: MessageFlags.IsComponentsV2, content: '**今北産業**\n- 議題を決定し、田中さんが資料を作る。' },
 		]);
 		expect(run.mock.calls[0]?.[0]).toBe('@cf/qwen/qwen3-30b-a3b-fp8');
 		expect(lastMessageContent(run.mock.calls[0]?.[1])).toContain(`[00:00:00] speaker=${speakerId}: 議題を決めた。田中さんが資料を作る。`);
@@ -61,7 +62,10 @@ describe('meeting_imakita interaction', () => {
 		await handleDiscordInteraction(request, workerEnv(), executionContext());
 		await flushInteractionTasks();
 
-		expect(edits.at(-1)?.content).toBe('確定した文字起こしがありません。文字起こしの確定後にもう一度お試しください。');
+		expect(edits.at(-1)).toMatchObject({
+			flags: MessageFlags.IsComponentsV2,
+			content: '確定した文字起こしがありません。文字起こしの確定後にもう一度お試しください。',
+		});
 		expect(run).not.toHaveBeenCalled();
 		expect(gatewayGetByName).not.toHaveBeenCalled();
 	});
@@ -75,7 +79,10 @@ describe('meeting_imakita interaction', () => {
 		await handleDiscordInteraction(request, workerEnv(), executionContext());
 		await flushInteractionTasks();
 
-		expect(edits.at(-1)?.content).toBe('録音を終了し、文字起こしを処理中です。');
+		expect(edits.at(-1)).toMatchObject({
+			flags: MessageFlags.IsComponentsV2,
+			content: '録音を終了し、文字起こしを処理中です。',
+		});
 		expect(run).not.toHaveBeenCalled();
 		expect(gatewayGetByName).not.toHaveBeenCalled();
 	});
@@ -114,11 +121,20 @@ function workerEnv(): WorkerEnv {
 let gatewayGetByName: ReturnType<typeof vi.fn>;
 
 async function interactionRequest(channelId: string) {
-	const edits: Array<{ url: string; content: string }> = [];
+	const edits: Array<{ url: string; flags: number | undefined; content: string }> = [];
 	const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 		if (typeof init?.body !== 'string') throw new Error('Expected a JSON interaction response');
 		const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-		edits.push({ url, content: String(JSON.parse(init.body).content) });
+		const payload = JSON.parse(init.body) as {
+			flags?: number;
+			components?: Array<{ components?: Array<{ type?: number; content?: string }> }>;
+		};
+		const content = (payload.components ?? [])
+			.flatMap((container) => container.components ?? [])
+			.filter((component) => component.type === 10)
+			.map((component) => component.content ?? '')
+			.join('\n');
+		edits.push({ url, flags: payload.flags, content });
 		return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
 	});
 	vi.stubGlobal('fetch', fetchMock);
@@ -132,7 +148,7 @@ async function interactionRequest(channelId: string) {
 		guild_id: guildId,
 		channel_id: channelId,
 		channel: { id: channelId, type: 2, guild_id: guildId },
-		data: { name: 'meeting_imakita' },
+		data: { name: 'imakinta' },
 	};
 	const body = new TextEncoder().encode(JSON.stringify(interaction));
 	const timestamp = String(Math.floor(Date.now() / 1000));
