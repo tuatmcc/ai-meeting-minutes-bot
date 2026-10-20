@@ -104,7 +104,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	ctx.waitUntil(processCommand(command, value, env));
 	const deferredResponse: APIInteractionResponse = {
 		type: 5,
-		...(command.action === 'start' ? {} : { data: { flags: 64 } }),
+		...(command.action === 'start' || command.action === 'stop' ? {} : { data: { flags: 64 } }),
 	};
 	return Response.json(deferredResponse);
 }
@@ -192,27 +192,17 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 		}
 
 		const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
-		const aiPageUrl = notionPageUrl ?? (notionPageId ? notionUrl(notionPageId) : null);
-		const embed: APIEmbed = {
-			title: result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
-			description: queued.gatewayConnected
-				? `${action}: <#${command.channelId}>`
-				: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
-			color: 0x5865f2,
-			fields: [
-				{ name: '対象の議事録', value: `[Notionで開く](${notionUrl(notionParentPageId)})` },
-				{
-					name: 'AI議事録',
-					value: aiPageUrl
-						? `[Notionで開く](${aiPageUrl})`
-						: notionPageCreationFailed
-							? 'ページの作成に失敗しました。録音終了後に再試行します。'
-							: 'ページは録音終了後に更新します。',
-				},
-			],
-		};
 		return {
-			embeds: [embed],
+			embeds: [
+				recordingEmbed(
+					result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
+					queued.gatewayConnected
+						? `${action}: <#${command.channelId}>`
+						: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
+					{ ...result.session, notionPageId, notionPageUrl },
+					notionPageCreationFailed,
+				),
+			],
 		};
 	}
 
@@ -264,9 +254,54 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 		channelId: command.channelId,
 		sessionId: active.sessionId,
 	});
-	return queued.gatewayConnected
-		? `録音の停止要求を送信しました: <#${command.channelId}>`
-		: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`;
+	let endingSession = active;
+	let notionPageCreationFailed = false;
+	if (active.notionParentPageId && !active.notionPageId) {
+		try {
+			const ensured = await session.ensureMeetingPage(active.sessionId);
+			if (!ensured.ok) throw new Error(`Could not create Notion page: ${ensured.code}`);
+			endingSession = ensured.session;
+			notionPageCreationFailed = !endingSession.notionPageId;
+		} catch (error) {
+			notionPageCreationFailed = true;
+			const message = error instanceof Error ? error.message : 'unknown error';
+			console.error('[notion] meeting page creation at stop failed', message);
+		}
+	}
+	return {
+		embeds: [
+			recordingEmbed(
+				'録音終了要求を送信しました',
+				queued.gatewayConnected
+					? `録音の停止要求を送信しました: <#${command.channelId}>`
+					: `停止要求を受け付けました。Gateway の接続待ちです: <#${command.channelId}>`,
+				endingSession,
+				notionPageCreationFailed,
+			),
+		],
+	};
+}
+
+function recordingEmbed(
+	title: string,
+	description: string,
+	session: Pick<VoiceSession, 'notionParentPageId' | 'notionPageId' | 'notionPageUrl'>,
+	notionPageCreationFailed: boolean,
+): APIEmbed {
+	const fields: NonNullable<APIEmbed['fields']> = [];
+	if (session.notionParentPageId) {
+		fields.push({ name: '対象の議事録', value: `[Notionで開く](${notionUrl(session.notionParentPageId)})` });
+	}
+	const aiPageUrl = session.notionPageUrl ?? (session.notionPageId ? notionUrl(session.notionPageId) : null);
+	fields.push({
+		name: 'AI議事録',
+		value: aiPageUrl
+			? `[Notionで開く](${aiPageUrl})`
+			: notionPageCreationFailed
+				? 'ページの作成に失敗しました。録音終了後に再試行します。'
+				: 'AI議事録ページは未作成です。',
+	});
+	return { title, description, color: 0x5865f2, fields };
 }
 
 function formatSessionStatus(session: VoiceSession, gatewayStatus: 'connected' | 'disconnected'): string {
