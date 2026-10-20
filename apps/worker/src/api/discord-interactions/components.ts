@@ -31,6 +31,8 @@ export async function handleComponentInteraction(
 					interaction,
 					env,
 					true,
+					false,
+					true,
 				),
 			);
 			return Response.json({ type: 6 });
