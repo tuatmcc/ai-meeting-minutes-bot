@@ -2,6 +2,7 @@ import { ButtonStyle, ComponentType, MessageFlags, SeparatorSpacingSize } from '
 import type {
 	APIComponentInContainer,
 	APIComponentInMessageActionRow,
+	APIMessageTopLevelComponent,
 	APIEmbed,
 	RESTPatchAPIInteractionOriginalResponseJSONBody,
 } from 'discord-api-types/v10';
@@ -238,6 +239,31 @@ export function recordingMessage(
 			},
 		],
 	};
+}
+
+export function recordingMessageWithoutStopButton(message: {
+	components?: APIMessageTopLevelComponent[];
+}): RESTPatchAPIInteractionOriginalResponseJSONBody {
+	const components = (message.components ?? []).flatMap((component): APIMessageTopLevelComponent[] => {
+		if (component.type === ComponentType.ActionRow) {
+			const buttons = component.components.filter(
+				(child) => child.type !== ComponentType.Button || !('custom_id' in child) || child.custom_id !== 'meeting_stop',
+			);
+			return buttons.length > 0 ? [{ ...component, components: buttons }] : [];
+		}
+		if (component.type === ComponentType.Container) {
+			const children = component.components.flatMap((child): APIComponentInContainer[] => {
+				if (child.type !== ComponentType.ActionRow) return [child];
+				const buttons = child.components.filter(
+					(button) => button.type !== ComponentType.Button || !('custom_id' in button) || button.custom_id !== 'meeting_stop',
+				);
+				return buttons.length > 0 ? [{ ...child, components: buttons }] : [];
+			});
+			return [{ ...component, components: children }];
+		}
+		return [component];
+	});
+	return { components };
 }
 
 export function formatSessionStatus(session: VoiceSession, gatewayStatus: 'connected' | 'disconnected'): string {

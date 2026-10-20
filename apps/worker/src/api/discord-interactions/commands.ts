@@ -2,7 +2,14 @@ import type { APIEmbed } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../../env.js';
 import { summarizeForCatchUp } from '../../ai/summaries.js';
 import { getNotionDataSource } from '../../notion/meeting-pages.js';
-import { commandMessageAsComponentsV2, formatSessionStatus, meetingMessage, recordingMessage, sessionStateMessage } from './views.js';
+import {
+	commandMessageAsComponentsV2,
+	formatSessionStatus,
+	meetingMessage,
+	recordingMessage,
+	recordingMessageWithoutStopButton,
+	sessionStateMessage,
+} from './views.js';
 import { createFollowupMessage, editOriginalResponse, normalizeNotionPageId, SNOWFLAKE_PATTERN } from './protocol.js';
 import type { CommandMessage, CommandParseResult, DiscordInteraction, ParsedCommand } from './types.js';
 
@@ -12,6 +19,7 @@ export async function processCommand(
 	env: WorkerEnv,
 	preserveComponentsV2 = false,
 	publishStartFollowup = false,
+	publishStopFollowup = false,
 ): Promise<void> {
 	const token = interaction.token;
 	if (!token) {
@@ -42,6 +50,13 @@ export async function processCommand(
 
 	const response = typeof message === 'string' ? { content: message } : message;
 	const responseUsesComponentsV2 = preserveComponentsV2 || (command.action === 'start' && typeof message !== 'string');
+	if (publishStopFollowup && command.action === 'stop') {
+		const published = await createFollowupMessage(env.DISCORD_APPLICATION_ID, token, commandMessageAsComponentsV2(message));
+		if (published && interaction.message) {
+			await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, recordingMessageWithoutStopButton(interaction.message));
+			return;
+		}
+	}
 	if (publishStartFollowup && command.action === 'start' && typeof message !== 'string') {
 		const followup = commandMessageAsComponentsV2(message);
 		const published = await createFollowupMessage(env.DISCORD_APPLICATION_ID, token, followup);

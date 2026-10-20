@@ -1,4 +1,4 @@
-import type { RESTPatchAPIInteractionOriginalResponseJSONBody } from 'discord-api-types/v10';
+import type { APIMessageTopLevelComponent, RESTPatchAPIInteractionOriginalResponseJSONBody } from 'discord-api-types/v10';
 
 export type DiscordInteraction = {
 	id: string;
@@ -11,6 +11,9 @@ export type DiscordInteraction = {
 		id?: string;
 		type?: number;
 		guild_id?: string;
+	};
+	message?: {
+		components?: APIMessageTopLevelComponent[];
 	};
 	member?: { permissions?: string };
 	data?: {
