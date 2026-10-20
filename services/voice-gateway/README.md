@@ -28,7 +28,7 @@ pnpm --filter @ai-meeting-minutes/voice-gateway dev
 - `WORKER_CONTROL_TOKEN`: Worker の `GATEWAY_CONTROL_TOKEN` と同じ値
 - `RECORDINGS_DIR`: WAV・manifest・チェックポイントの保存先。デフォルトは `services/voice-gateway/var/recordings`
 
-Worker は音声を R2 に一時保存してから Workers AI に渡します。文字起こしが成功すると結果をセッションの SQLite に保存し、R2 の音声を削除します。推論に失敗した音声は R2 に残します。gateway も未確定の WAV をローカルに残し、成功した区間は削除します。再試行を使い切った場合はセッションを失敗として扱い、調査・再送用の一時データを残します。再起動による録音の自動再開や失敗セッションの自動復旧は行いません。
+Worker は音声を R2 に一時保存してから Workers AI に渡します。文字起こしが成功すると結果をセッションの SQLite に保存し、R2 の音声を削除します。推論に失敗した音声は R2 に残します。gateway も未確定の WAV をローカルに残し、成功した区間は削除します。再試行を使い切った場合はセッションを失敗として扱い、調査・再送用の一時データを残します。Gateway との制御接続が切れると進行中のセッションを失敗として終了します。再起動後に録音を自動再開することはありません。
 
 manifest の R2 PUT URL は Worker が発行するため、gateway に R2 API 認証情報は不要です。Bot には対象 Voice Channel の `ViewChannel` と `Connect` 権限が必要です。音声は送信しないため `Speak` 権限は不要です。
 
