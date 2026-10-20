@@ -1,6 +1,6 @@
 # Worker
 
-Cloudflare WorkerはDiscordの `meeting_` プレフィックス付き `/meeting_start`・`/meeting_stop`・`/meeting_status`・`/meeting_imakita`・`/meeting_notion_retry`・`/meeting_link_notion_db` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
+Cloudflare WorkerはDiscordの `/meeting`・`/meeting_start`・`/meeting_stop`・`/meeting_status`・`/meeting_imakita`・`/meeting_notion_retry`・`/meeting_link_notion_db` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
 各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル文字起こしサーバーは不要です。
 
@@ -18,7 +18,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。まず管理者が `/meeting_link_notion_db database:` で、このVCに対応するNotion議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。`/meeting_link_notion_db` はサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で案内と保存先の選択肢を表示します。Notionを使う場合は、従来どおりサーバー管理者が `/meeting_link_notion_db database:` でこのVCに対応する議事録DBを設定してください。録音時は `/meeting_start meeting:` でそのDB内に手動作成した議事録を検索して選択します。`/meeting_start` は対象項目の選択が必須です。DBの設定にはサーバー管理権限が必要です。`/meeting_imakita` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/meeting_status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 
@@ -34,7 +34,7 @@ Notion向けの議事録要約には、分割要約も含めて `@cf/google/gemm
 
 1. Notion Developer Portalでinternal connectionを作成し、`Read content`、`Insert content`、`Update content` の権限を付けます。
 2. 対象の議事録データベースにconnectionを追加します。WorkerがDB内の項目を検索し、選択項目の下にAI議事録ページを作成します。
-3. `/meeting_link_notion_db` で使うDBを選びます。この操作はDiscordのサーバー管理権限を持つ人が行います。
+3. `/meeting_link_notion_db database:` で使うDBを選びます。この操作はDiscordのサーバー管理権限を持つ人が行います。
 
 子ページの本文にはsession情報、要約、全文字起こしが入ります。
 

@@ -23,12 +23,13 @@ type DiscordInteraction = {
 	member?: { permissions?: string };
 	data?: {
 		name?: string;
+		custom_id?: string;
 		options?: Array<{ name?: string; type?: number; value?: unknown; focused?: boolean }>;
 	};
 };
 
 type ParsedCommand = {
-	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db' | 'status';
+	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db' | 'meeting' | 'status';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
@@ -80,6 +81,16 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	if (value.type === 1) {
 		return Response.json({ type: 1 });
 	}
+	if (value.type === 3) {
+		if (
+			!value.token ||
+			!SNOWFLAKE_PATTERN.test(value.id) ||
+			(value.data?.custom_id !== 'meeting_setup_notion' && value.data?.custom_id !== 'meeting_setup_discord')
+		) {
+			return interactionMessage('この操作には対応していません。');
+		}
+		return Response.json({ type: 6 });
+	}
 	if (value.type === 4) {
 		if (!value.token || !SNOWFLAKE_PATTERN.test(value.id)) {
 			return Response.json({ type: 8, data: { choices: [] } });
@@ -96,7 +107,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、`/meeting_notion_retry`、または `/meeting_link_notion_db` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、`/meeting_notion_retry`、または `/meeting_link_notion_db` を実行してください。',
 		);
 	}
 
@@ -149,6 +160,39 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 		if (!database) return 'Notion DBを取得できませんでした。BotにDBを共有してから、もう一度選んでください。';
 		await session.setNotionDatabase(database);
 		return `この VC の議事録DBを「${database.title}」に設定しました。`;
+	}
+	if (command.action === 'meeting') {
+		const database = await session.getNotionDatabase();
+		return {
+			embeds: [
+				{
+					title: '議事録 Bot へようこそ',
+					description: 'この Bot は Discord の会話を文字起こしして、自動で議事録を作成します。',
+					color: 0x5865f2,
+					fields: [
+						{ name: '現在の VC', value: `<#${command.channelId}>` },
+						{
+							name: '保存先',
+							value: database ? `Notion: ${database.title}` : 'まだ設定されていません。どのように利用しますか？',
+						},
+						{
+							name: 'Notion に議事録を保存',
+							value: '指定したデータベースに会議ごとの議事録を自動作成します。DB設定には `/meeting_link_notion_db` を使います。',
+						},
+						{ name: 'Discord だけで使う', value: '議事録を Discord に投稿します。Notion は後から連携できます。' },
+					],
+				},
+			],
+			components: [
+				{
+					type: 1,
+					components: [
+						{ type: 2, style: 2, label: 'Notion に議事録を保存', custom_id: 'meeting_setup_notion', emoji: { name: '📖' } },
+						{ type: 2, style: 2, label: 'Discord だけで使う', custom_id: 'meeting_setup_discord', emoji: { name: '💬' } },
+					],
+				},
+			],
+		};
 	}
 	if (command.action === 'start') {
 		const notionParentPageId = command.notionParentPageId;
@@ -395,12 +439,13 @@ function parseCommand(interaction: DiscordInteraction): CommandParseResult {
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'meeting_start' &&
+		(name !== 'meeting' &&
+			name !== 'meeting_link_notion_db' &&
+			name !== 'meeting_start' &&
 			name !== 'meeting_stop' &&
 			name !== 'meeting_imakita' &&
 			name !== 'meeting_status' &&
-			name !== 'meeting_notion_retry' &&
-			name !== 'meeting_link_notion_db')
+			name !== 'meeting_notion_retry')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}
@@ -473,6 +518,7 @@ function isApplicationCommandData(value: unknown): boolean {
 	const data = value as Record<string, unknown>;
 	return (
 		(data.name === undefined || typeof data.name === 'string') &&
+		(data.custom_id === undefined || typeof data.custom_id === 'string') &&
 		(data.options === undefined || (Array.isArray(data.options) && data.options.every(isApplicationCommandOption)))
 	);
 }
