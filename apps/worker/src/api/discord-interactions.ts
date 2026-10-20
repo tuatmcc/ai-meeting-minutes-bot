@@ -1,6 +1,5 @@
 import type { APIInteractionResponse } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../env.js';
-import { handleAutocomplete } from './discord-interactions/autocomplete.js';
 import { handleComponentInteraction } from './discord-interactions/components.js';
 import { parseCommand, processCommand } from './discord-interactions/commands.js';
 import {
@@ -56,10 +55,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 		return handleComponentInteraction(value, env, ctx);
 	}
 	if (value.type === 4) {
-		if (!value.token || !SNOWFLAKE_PATTERN.test(value.id)) {
-			return Response.json({ type: 8, data: { choices: [] } });
-		}
-		return handleAutocomplete(value, env);
+		return Response.json({ type: 8, data: { choices: [] } });
 	}
 	if (value.type !== 2) {
 		return new Response('Unsupported interaction type', { status: 400 });
@@ -71,7 +67,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_start`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、`/meeting_notion_retry`、または `/meeting_link_notion_db` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_stop`、`/meeting_imakita`、`/meeting_status`、または `/meeting_notion_retry` を実行してください。',
 		);
 	}
 

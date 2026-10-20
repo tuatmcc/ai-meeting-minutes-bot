@@ -15,7 +15,6 @@ export type DiscordInteraction = {
 	message?: {
 		components?: APIMessageTopLevelComponent[];
 	};
-	member?: { permissions?: string };
 	data?: {
 		name?: string;
 		custom_id?: string;
@@ -27,16 +26,13 @@ export type DiscordInteraction = {
 export type ComponentContext = {
 	guildId: string;
 	channelId: string;
-	canManageGuild: boolean;
 };
 
 export type ParsedCommand = {
-	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'link_notion_db' | 'meeting' | 'status';
+	action: 'start' | 'stop' | 'imakita' | 'notion_retry' | 'meeting' | 'status';
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
-	notionDatabaseId: string | null;
-	canManageGuild: boolean;
 };
 
 export type CommandMessage = string | RESTPatchAPIInteractionOriginalResponseJSONBody;

@@ -11,40 +11,11 @@ if (!/^\d{17,20}$/.test(DISCORD_APPLICATION_ID)) {
 }
 
 const commands = [
-	{
-		name: 'meeting_start',
-		description: 'このボイスチャンネルで録音を開始します',
-		type: 1,
-		options: [
-			{
-				name: 'meeting',
-				description: '今回の議事録を選択',
-				type: 3,
-				required: true,
-				autocomplete: true,
-			},
-		],
-	},
 	{ name: 'meeting_stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
 	{ name: 'meeting_imakita', description: '会議の現在地を短く要約します', type: 1 },
 	{ name: 'meeting_status', description: 'このボイスチャンネルの録音状態を表示します', type: 1 },
 	{ name: 'meeting_notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },
 	{ name: 'meeting', description: '議事録Botの案内と保存先の選択肢を表示します', type: 1 },
-	{
-		name: 'meeting_link_notion_db',
-		description: 'このボイスチャンネルの議事録DBを設定します',
-		type: 1,
-		default_member_permissions: '32',
-		options: [
-			{
-				name: 'database',
-				description: 'Notion DBを検索して選択',
-				type: 3,
-				required: true,
-				autocomplete: true,
-			},
-		],
-	},
 ];
 
 const response = await fetch(`https://discord.com/api/v10/applications/${DISCORD_APPLICATION_ID}/commands`, {

@@ -68,14 +68,7 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					error_code TEXT
 				)
 			`);
-			ctx.storage.sql.exec(`
-				CREATE TABLE IF NOT EXISTS notion_database (
-					id INTEGER PRIMARY KEY CHECK (id = 1),
-					data_source_id TEXT NOT NULL,
-					title TEXT NOT NULL,
-					title_property TEXT NOT NULL
-				)
-			`);
+			ctx.storage.sql.exec('DROP TABLE IF EXISTS notion_database');
 			ctx.storage.sql.exec(`
 				CREATE TABLE IF NOT EXISTS notion_parent_pages (
 					parent_page_id TEXT PRIMARY KEY,
@@ -352,25 +345,6 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 				return [`[${timestamp}] speaker=${segment.speaker_id}: ${text}`];
 			})
 			.join('\n');
-	}
-
-	async getNotionDatabase(): Promise<{ dataSourceId: string; title: string; titleProperty: string } | null> {
-		const row = this.ctx.storage.sql
-			.exec<{ data_source_id: string; title: string; title_property: string }>(
-				'SELECT data_source_id, title, title_property FROM notion_database WHERE id = 1',
-			)
-			.toArray()[0];
-		return row ? { dataSourceId: row.data_source_id, title: row.title, titleProperty: row.title_property } : null;
-	}
-
-	async setNotionDatabase(database: { dataSourceId: string; title: string; titleProperty: string }): Promise<void> {
-		this.ctx.storage.sql.exec(
-			`INSERT INTO notion_database (id, data_source_id, title, title_property) VALUES (1, ?, ?, ?)
-			 ON CONFLICT(id) DO UPDATE SET data_source_id = excluded.data_source_id, title = excluded.title, title_property = excluded.title_property`,
-			database.dataSourceId,
-			database.title,
-			database.titleProperty,
-		);
 	}
 
 	async createMeetingPageForParent(session: VoiceSession): Promise<CreatedMeetingPage> {

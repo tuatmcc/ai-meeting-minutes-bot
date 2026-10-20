@@ -16,6 +16,12 @@ export async function handleComponentInteraction(
 
 	const componentContext = parseComponentContext(interaction);
 	if (!componentContext) return interactionMessage('この操作には対応していません。');
+	if (customId?.startsWith('meeting_retry_notion_pages:')) {
+		const dataSourceId = normalizeNotionPageId(customId.slice('meeting_retry_notion_pages:'.length));
+		if (!dataSourceId) return interactionMessage('Notion データベースを取得できませんでした。もう一度選択してください。');
+		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env));
+		return Response.json({ type: 6 });
+	}
 	switch (customId) {
 		case 'meeting_stop':
 			ctx.waitUntil(
@@ -25,8 +31,6 @@ export async function handleComponentInteraction(
 						guildId: componentContext.guildId,
 						channelId: componentContext.channelId,
 						notionParentPageId: null,
-						notionDatabaseId: null,
-						canManageGuild: componentContext.canManageGuild,
 					},
 					interaction,
 					env,
@@ -37,19 +41,14 @@ export async function handleComponentInteraction(
 			);
 			return Response.json({ type: 6 });
 		case 'meeting_setup_notion':
-			if (!componentContext.canManageGuild) return interactionMessage('Notion の保存先を設定するにはサーバー管理権限が必要です。');
-			ctx.waitUntil(showNotionDatabasePicker(interaction, componentContext, env));
+			ctx.waitUntil(showNotionDatabasePicker(interaction, env));
 			return Response.json({ type: 6 });
 		case 'meeting_select_notion_database': {
-			if (!componentContext.canManageGuild) return interactionMessage('Notion の保存先を設定するにはサーバー管理権限が必要です。');
 			const selectedId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
 			if (!selectedId) return interactionMessage('Notion データベースを候補から選択してください。');
-			ctx.waitUntil(saveNotionDatabase(interaction, componentContext, selectedId, env));
+			ctx.waitUntil(showNotionPagePickerForSelection(interaction, selectedId, env));
 			return Response.json({ type: 6 });
 		}
-		case 'meeting_retry_notion_pages':
-			ctx.waitUntil(showNotionPagePicker(interaction, componentContext, env));
-			return Response.json({ type: 6 });
 		case 'meeting_select_notion_page': {
 			const notionParentPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
 			if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
@@ -60,8 +59,6 @@ export async function handleComponentInteraction(
 						guildId: componentContext.guildId,
 						channelId: componentContext.channelId,
 						notionParentPageId,
-						notionDatabaseId: null,
-						canManageGuild: componentContext.canManageGuild,
 					},
 					interaction,
 					env,
@@ -95,16 +92,10 @@ function parseComponentContext(interaction: DiscordInteraction): ComponentContex
 	) {
 		return null;
 	}
-	const permissions = interaction.member?.permissions;
-	const canManageGuild = permissions !== undefined && /^\d+$/.test(permissions) && (BigInt(permissions) & 40n) !== 0n;
-	return { guildId, channelId, canManageGuild };
+	return { guildId, channelId };
 }
 
-async function showNotionDatabasePicker(
-	interaction: DiscordInteraction,
-	componentContext: ComponentContext,
-	env: WorkerEnv,
-): Promise<void> {
+async function showNotionDatabasePicker(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
 	if (!env.NOTION_API_TOKEN) {
 		await editOriginalResponse(
@@ -127,12 +118,7 @@ async function showNotionDatabasePicker(
 	}
 }
 
-async function saveNotionDatabase(
-	interaction: DiscordInteraction,
-	componentContext: ComponentContext,
-	databaseId: string,
-	env: WorkerEnv,
-): Promise<void> {
+async function showNotionPagePickerForSelection(interaction: DiscordInteraction, databaseId: string, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
 	try {
 		const database = await getNotionDataSource(env, databaseId);
@@ -144,39 +130,30 @@ async function saveNotionDatabase(
 			);
 			return;
 		}
-		const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
-		await session.setNotionDatabase(database);
-		await showNotionPagePicker(interaction, componentContext, env, database);
+		await showNotionPagePicker(interaction, env, database);
 	} catch (error) {
-		console.error('[notion] database save failed', error instanceof Error ? error.name : 'unknown error');
+		console.error('[notion] database selection failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
 			interaction.token,
-			notionDatabasePickerMessage([], 'Notion の保存先を設定できませんでした。時間をおいて再試行してください。'),
+			notionDatabasePickerMessage([], 'データベースを取得できませんでした。時間をおいて再試行してください。'),
 		);
 	}
 }
 
-async function showNotionPagePicker(
-	interaction: DiscordInteraction,
-	componentContext: ComponentContext,
-	env: WorkerEnv,
-	selectedDatabase?: NotionDataSource,
-): Promise<void> {
+async function showNotionPagePicker(interaction: DiscordInteraction, env: WorkerEnv, database: NotionDataSource): Promise<void> {
 	if (!interaction.token) return;
-	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
-	const database = selectedDatabase ?? (await session.getNotionDatabase());
-	if (!database) {
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage('この VC の議事録 DB が未設定です。'));
-		return;
-	}
 	try {
 		const pages = await queryNotionDataSource(env, database, '');
 		const notice =
 			pages.length === 0
 				? 'このデータベースに選択できるページがありません。Notion の共有設定を確認して再読み込みしてください。'
 				: undefined;
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, notionParentPagePickerMessage(database.title, pages, notice));
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionParentPagePickerMessage(database.title, pages, database.dataSourceId, notice),
+		);
 	} catch (error) {
 		console.error('[notion] database page query failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
@@ -185,6 +162,7 @@ async function showNotionPagePicker(
 			notionParentPagePickerMessage(
 				database.title,
 				[],
+				database.dataSourceId,
 				'データベース内のページを取得できませんでした。時間をおいて再読み込みしてください。',
 			),
 		);
