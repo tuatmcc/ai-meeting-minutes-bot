@@ -1,7 +1,6 @@
 import { ButtonStyle, ComponentType, MessageFlags, SeparatorSpacingSize } from 'discord-api-types/v10';
 import type {
 	APIComponentInContainer,
-	APIComponentInMessageActionRow,
 	APIMessageTopLevelComponent,
 	APIEmbed,
 	RESTPatchAPIInteractionOriginalResponseJSONBody,
@@ -113,23 +112,29 @@ export function notionDatabasePickerMessage(
 			content: 'Botに共有されているデータベースが見つかりませんでした。Notionの共有設定を確認して再試行してください。',
 		});
 	}
-	const buttons: APIComponentInMessageActionRow[] = [
-		{
+	if (databases.length === 0) {
+		components.push({
+			type: ComponentType.ActionRow,
+			components: [
+				{
+					type: ComponentType.Button,
+					style: ButtonStyle.Primary,
+					label: '再試行',
+					custom_id: 'meeting_setup_notion',
+				},
+			],
+		});
+	}
+	components.push({
+		type: ComponentType.Section,
+		components: [{ type: ComponentType.TextDisplay, content: '**1/2**' }],
+		accessory: {
 			type: ComponentType.Button,
 			style: ButtonStyle.Secondary,
 			label: '戻る',
 			custom_id: 'meeting_setup_cancel',
 		},
-	];
-	if (databases.length === 0) {
-		buttons.push({
-			type: ComponentType.Button,
-			style: ButtonStyle.Primary,
-			label: '再試行',
-			custom_id: 'meeting_setup_notion',
-		});
-	}
-	components.push({ type: ComponentType.ActionRow, components: buttons });
+	});
 	return {
 		flags: MessageFlags.IsComponentsV2,
 		components: [{ type: ComponentType.Container, accent_color: 0x5865f2, components }],
@@ -165,23 +170,29 @@ export function notionParentPagePickerMessage(
 			],
 		});
 	}
-	const buttons: APIComponentInMessageActionRow[] = [
-		{
+	if (pages.length === 0) {
+		components.push({
+			type: ComponentType.ActionRow,
+			components: [
+				{
+					type: ComponentType.Button,
+					style: ButtonStyle.Primary,
+					label: '再読み込み',
+					custom_id: `meeting_retry_notion_pages:${dataSourceId}`,
+				},
+			],
+		});
+	}
+	components.push({
+		type: ComponentType.Section,
+		components: [{ type: ComponentType.TextDisplay, content: '**2/2**' }],
+		accessory: {
 			type: ComponentType.Button,
 			style: ButtonStyle.Secondary,
 			label: '戻る',
 			custom_id: 'meeting_setup_cancel',
 		},
-	];
-	if (pages.length === 0) {
-		buttons.push({
-			type: ComponentType.Button,
-			style: ButtonStyle.Primary,
-			label: '再読み込み',
-			custom_id: `meeting_retry_notion_pages:${dataSourceId}`,
-		});
-	}
-	components.push({ type: ComponentType.ActionRow, components: buttons });
+	});
 	return {
 		flags: MessageFlags.IsComponentsV2,
 		components: [{ type: ComponentType.Container, accent_color: 0x5865f2, components }],
