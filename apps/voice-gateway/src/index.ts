@@ -1,25 +1,10 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { Client, Events, GatewayIntentBits, PermissionsBitField } from 'discord.js';
-import { VoiceConnectionStatus, entersState, joinVoiceChannel, type VoiceConnection } from '@discordjs/voice';
+import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { loadConfig } from './config.ts';
-import { logger as baseLogger } from './logger.ts';
+import { GatewayControlClient } from './clients/gateway-control.ts';
+import { SessionApi } from './clients/session-api.ts';
 import { TranscriptionApi } from './clients/transcription-api.ts';
-import { TranscriptionSegmenter, type MeetingTranscription } from './clients/transcription-segmenter.ts';
-import { GatewayControlClient, type GatewayCommand } from './clients/gateway-control.ts';
-import { uploadToR2 } from './clients/r2-upload.ts';
-import { SessionApi, type SessionResumeInfo } from './clients/session-api.ts';
-import { VoiceRecorder } from './discord/voice-recorder.ts';
-
-type ActiveRecording = {
-	command: GatewayCommand;
-	connection: VoiceConnection;
-	recorder: VoiceRecorder;
-	transcriptionSegmenter: TranscriptionSegmenter;
-	resumeInfo?: SessionResumeInfo;
-	stopPromise?: Promise<void>;
-	failureToRecord?: string;
-};
+import { logger as baseLogger } from './logger.ts';
+import { RecordingManager } from './recording-manager.ts';
 
 const config = loadConfig();
 const logger = baseLogger.child({ component: 'main' });
@@ -28,10 +13,7 @@ const transcriptionApi = new TranscriptionApi(config.workerApiUrl, config.worker
 const client = new Client({
 	intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
-const activeRecordings = new Map<string, ActiveRecording>();
-let gatewayControl: GatewayControlClient | undefined;
-let gatewayControlTask: Promise<void> | undefined;
-let shuttingDown = false;
+const recordingManager = new RecordingManager(client, config.recordingsDir, sessionApi, transcriptionApi);
 
 const clientReady = new Promise<void>((resolve) => {
 	client.once(Events.ClientReady, (readyClient) => {
@@ -40,244 +22,6 @@ const clientReady = new Promise<void>((resolve) => {
 	});
 });
 
-async function startRecording(command: Extract<GatewayCommand, { action: 'start' }>): Promise<void> {
-	const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
-	if (!session || session.sessionId !== command.sessionId || (session.state !== 'starting' && session.state !== 'recording')) {
-		logger.info({ sessionId: command.sessionId, guildId: command.guildId, channelId: command.channelId }, 'Ignored stale recording start');
-		return;
-	}
-
-	const existingSession = activeRecordings.get(command.sessionId);
-	if (existingSession) {
-		if (sameSession(existingSession.command, command)) {
-			logger.info({ sessionId: command.sessionId }, 'Ignored duplicate recording start');
-			return;
-		}
-		throw new Error('Session ID is already active for a different voice channel');
-	}
-	if ([...activeRecordings.values()].some(({ command: active }) => active.guildId === command.guildId)) {
-		throw new Error(`Gateway is already recording in guild ${command.guildId}`);
-	}
-	const resumeInfo = command.resume ? await sessionApi.getResumeInfo(command.guildId, command.channelId, command.sessionId) : undefined;
-
-	let connection: VoiceConnection | undefined;
-	let recorder: VoiceRecorder | undefined;
-	let transcriptionSegmenter: TranscriptionSegmenter | undefined;
-	try {
-		const guild = await client.guilds.fetch(command.guildId);
-		const channel = await guild.channels.fetch(command.channelId);
-		if (!channel?.isVoiceBased()) {
-			throw new Error(`Channel ${command.channelId} is not a voice channel`);
-		}
-
-		const botMember = await guild.members.fetch(client.user!.id);
-		const permissions = channel.permissionsFor(botMember);
-		const missingPermissions = [
-			{ name: 'ViewChannel', permission: PermissionsBitField.Flags.ViewChannel },
-			{ name: 'Connect', permission: PermissionsBitField.Flags.Connect },
-		].filter(({ permission }) => !permissions?.has(permission));
-		if (missingPermissions.length > 0) {
-			throw new Error(`Missing permissions in ${channel.name}: ${missingPermissions.map(({ name }) => name).join(', ')}`);
-		}
-
-		connection = joinVoiceChannel({
-			channelId: channel.id,
-			guildId: guild.id,
-			adapterCreator: guild.voiceAdapterCreator,
-			selfDeaf: false,
-			selfMute: true,
-		});
-		connection.on('stateChange', (oldState, newState) => {
-			logger.info({ guildId: guild.id, oldState: oldState.status, newState: newState.status }, 'Voice connection state changed');
-		});
-		connection.on('error', (error) => {
-			logger.error({ err: error, guildId: guild.id }, 'Voice connection error');
-		});
-
-		await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
-		logger.info(
-			{ guildId: guild.id, guildName: guild.name, channelId: channel.id, channelName: channel.name },
-			'Connected to voice channel',
-		);
-
-		recorder = await VoiceRecorder.create(
-			connection.receiver,
-			config.recordingsDir,
-			command.sessionId,
-			(speakerId, startMs, pcm) => transcriptionSegmenter?.addAudio(speakerId, startMs, pcm),
-			(elapsedMs) => transcriptionSegmenter?.flushSilent(elapsedMs),
-		);
-		transcriptionSegmenter = new TranscriptionSegmenter(
-			transcriptionApi,
-			join(config.recordingsDir, command.sessionId),
-			{
-				guildId: command.guildId,
-				channelId: command.channelId,
-				sessionId: command.sessionId,
-			},
-			command.resume,
-		);
-		await sessionApi.markRecordingStarted(command.guildId, command.channelId, command.sessionId);
-		recorder.start();
-
-		activeRecordings.set(command.sessionId, { command, connection, recorder, transcriptionSegmenter, resumeInfo });
-		logger.info(
-			{ sessionId: command.sessionId, guildId: command.guildId, channelId: command.channelId, resumed: Boolean(resumeInfo) },
-			'Recording started',
-		);
-	} catch (error) {
-		if (recorder) {
-			await recorder.stop().catch((stopError: unknown) => {
-				logger.error({ err: stopError, sessionId: command.sessionId }, 'Recorder cleanup after startup failure failed');
-			});
-		}
-		await transcriptionSegmenter?.finish().catch(() => undefined);
-		connection?.destroy();
-		throw error;
-	}
-}
-
-async function stopRecording(recording: ActiveRecording): Promise<void> {
-	if (recording.stopPromise) {
-		await recording.stopPromise;
-		return;
-	}
-	if (recording.failureToRecord) {
-		await sessionApi.failSession(
-			recording.command.guildId,
-			recording.command.channelId,
-			recording.command.sessionId,
-			recording.failureToRecord,
-		);
-		activeRecordings.delete(recording.command.sessionId);
-		return;
-	}
-
-	const stopPromise = (async () => {
-		const { command, recorder, transcriptionSegmenter, connection } = recording;
-		let failSessionRecorded = false;
-		try {
-			const result = await recorder.stop().catch(async (error: unknown) => {
-				await transcriptionSegmenter.finish().catch(() => undefined);
-				throw error;
-			});
-			const currentTranscription = await transcriptionSegmenter.finish();
-			const transcription = recording.resumeInfo
-				? mergeTranscriptions(recording.resumeInfo.manifest.transcription, currentTranscription)
-				: currentTranscription;
-			const durationMs = (recording.resumeInfo?.manifest.durationMs ?? 0) + result.durationMs;
-			logger.info(
-				{
-					sessionId: command.sessionId,
-					framesReceived: result.stats.framesReceived,
-					bytesReceived: result.stats.bytesReceived,
-					durationMs: result.durationMs,
-				},
-				'Audio capture completed',
-			);
-			await sessionApi.markProcessingStarted(command.guildId, command.channelId, command.sessionId);
-			const manifestPath = join(result.sessionDir, 'manifest.json');
-			const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
-			await writeFile(
-				manifestPath,
-				`${JSON.stringify(
-					{
-						...manifest,
-						startedAt: recording.resumeInfo?.manifest.startedAt ?? manifest.startedAt,
-						durationMs,
-						transcription,
-					},
-					null,
-					2,
-				)}\n`,
-				'utf8',
-			);
-
-			const uploads = await sessionApi.createUploadTargets(command.guildId, command.channelId, command.sessionId);
-			const manifestUpload = uploads.find(({ key }) => key.endsWith('/manifest.json'));
-			if (!manifestUpload) {
-				throw new Error('Worker did not return an R2 manifest upload target');
-			}
-
-			const manifestSizeBytes = await uploadToR2(manifestUpload, manifestPath);
-			await sessionApi.completeSession(command.guildId, command.channelId, command.sessionId, {
-				endedAt: result.endedAt,
-				durationMs,
-				manifestSizeBytes,
-			});
-			logger.info({ sessionId: command.sessionId, model: transcription.model }, 'Transcription saved to R2');
-			await rm(result.sessionDir, { recursive: true, force: true }).catch((error: unknown) => {
-				logger.warn({ err: error, sessionId: command.sessionId }, 'Could not remove local temporary files');
-			});
-		} catch (error) {
-			logger.error({ err: error, sessionId: command.sessionId }, 'Recording finalization failed');
-			try {
-				await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'recording_finalize_failed');
-				failSessionRecorded = true;
-			} catch (failure) {
-				recording.failureToRecord = 'recording_finalize_failed';
-				throw failure;
-			}
-		} finally {
-			connection.destroy();
-			if (failSessionRecorded || !recording.failureToRecord) {
-				activeRecordings.delete(command.sessionId);
-			}
-		}
-	})();
-	recording.stopPromise = stopPromise;
-
-	try {
-		await stopPromise;
-	} catch (error) {
-		if (recording.stopPromise === stopPromise) {
-			recording.stopPromise = undefined;
-		}
-		throw error;
-	}
-}
-
-async function handleGatewayCommand(command: GatewayCommand): Promise<void> {
-	if (shuttingDown && command.action === 'start') {
-		logger.info({ sessionId: command.sessionId }, 'Ignored recording start during shutdown');
-		return;
-	}
-
-	if (command.action === 'start') {
-		try {
-			await startRecording(command);
-		} catch (error) {
-			logger.error({ err: error, sessionId: command.sessionId }, 'Recording startup failed');
-			await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'recording_start_failed');
-		}
-		return;
-	}
-
-	const recording = activeRecordings.get(command.sessionId);
-	if (!recording || !sameSession(recording.command, command)) {
-		logger.info({ sessionId: command.sessionId }, 'Ignored duplicate or stale recording stop');
-		const session = await sessionApi.getActiveSession(command.guildId, command.channelId);
-		if (session?.sessionId === command.sessionId && (session.state === 'starting' || session.state === 'recording')) {
-			await sessionApi.failSession(command.guildId, command.channelId, command.sessionId, 'gateway_recording_missing');
-		}
-		return;
-	}
-	await stopRecording(recording);
-}
-
-function sameSession(left: GatewayCommand, right: GatewayCommand): boolean {
-	return left.sessionId === right.sessionId && left.guildId === right.guildId && left.channelId === right.channelId;
-}
-
-function mergeTranscriptions(previous: MeetingTranscription, current: MeetingTranscription): MeetingTranscription {
-	return {
-		model: current.model || previous.model,
-		language: current.language ?? previous.language,
-		text: [previous.text, current.text].filter(Boolean).join('\n'),
-		segments: [...previous.segments, ...current.segments].sort((left, right) => left.startMs - right.startMs || left.index - right.index),
-	};
-}
-
 client.on(Events.Error, (error) => {
 	logger.error({ err: error }, 'Discord client error');
 });
@@ -285,20 +29,24 @@ client.on(Events.Error, (error) => {
 await client.login(config.token);
 await clientReady;
 
-gatewayControl = new GatewayControlClient(config.workerControlUrl, config.workerControlToken, handleGatewayCommand);
-gatewayControlTask = gatewayControl.run();
+const gatewayControl = new GatewayControlClient(config.workerControlUrl, config.workerControlToken, (command) =>
+	recordingManager.handleGatewayCommand(command),
+);
+const gatewayControlTask = gatewayControl.run();
+let shuttingDown = false;
 
 async function shutdown(): Promise<void> {
 	if (shuttingDown) {
 		return;
 	}
 	shuttingDown = true;
-	logger.info({ activeRecordingCount: activeRecordings.size }, 'Shutting down voice gateway');
+	recordingManager.beginShutdown();
+	logger.info({ activeRecordingCount: recordingManager.activeRecordingCount }, 'Shutting down voice gateway');
 	try {
-		await gatewayControl?.drain();
-		await Promise.all([...activeRecordings.values()].map((recording) => stopRecording(recording)));
+		await gatewayControl.drain();
+		await recordingManager.stopAll();
 	} finally {
-		await gatewayControl?.stop();
+		await gatewayControl.stop();
 		await gatewayControlTask;
 		await client.destroy();
 		logger.info('Voice gateway shutdown complete');
