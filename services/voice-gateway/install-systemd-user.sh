@@ -86,6 +86,12 @@ escape_unit_value() {
 	printf '"%s"' "$value"
 }
 
+escape_unit_path() {
+	local value="$1"
+	value="${value//%/%%}"
+	printf '%s' "$value"
+}
+
 temporary_unit="$(mktemp "$unit_dir/.${service_name}.XXXXXX")"
 trap 'rm -f "$temporary_unit"' EXIT
 cat >"$temporary_unit" <<EOF
@@ -96,8 +102,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=$(escape_unit_value "$gateway_dir")
-EnvironmentFile=$(escape_unit_value "$env_file")
+WorkingDirectory=$(escape_unit_path "$gateway_dir")
+EnvironmentFile=$(escape_unit_path "$env_file")
 Environment=NODE_ENV=production
 Environment=RECORDINGS_DIR=$(escape_unit_value "$recordings_dir")
 ExecStart=$(escape_unit_value "$node_bin") --experimental-transform-types src/index.ts
@@ -112,7 +118,15 @@ EOF
 
 install -m 644 "$temporary_unit" "$unit_file"
 systemctl --user daemon-reload
-systemctl --user enable --now "$service_name"
+systemctl --user enable "$service_name"
+if ! systemctl --user start "$service_name"; then
+	systemctl --user status "$service_name" --no-pager -l >&2 || true
+	exit 1
+fi
+if ! systemctl --user is-active --quiet "$service_name"; then
+	printf 'The service did not become active. Check its logs with journalctl --user -u %s.\n' "$service_name" >&2
+	exit 1
+fi
 
 printf 'Enabled %s.\n' "$service_name"
 printf 'Check status: systemctl --user status %s\n' "$service_name"
