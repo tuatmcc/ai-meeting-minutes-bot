@@ -17,6 +17,23 @@ export async function handleComponentInteraction(
 	const componentContext = parseComponentContext(interaction);
 	if (!componentContext) return interactionMessage('この操作には対応していません。');
 	switch (customId) {
+		case 'meeting_stop':
+			ctx.waitUntil(
+				processCommand(
+					{
+						action: 'stop',
+						guildId: componentContext.guildId,
+						channelId: componentContext.channelId,
+						notionParentPageId: null,
+						notionDatabaseId: null,
+						canManageGuild: componentContext.canManageGuild,
+					},
+					interaction,
+					env,
+					true,
+				),
+			);
+			return Response.json({ type: 6 });
 		case 'meeting_setup_notion':
 			if (!componentContext.canManageGuild) return interactionMessage('Notion の保存先を設定するにはサーバー管理権限が必要です。');
 			ctx.waitUntil(showNotionDatabasePicker(interaction, componentContext, env));
@@ -46,6 +63,7 @@ export async function handleComponentInteraction(
 					},
 					interaction,
 					env,
+					true,
 					true,
 				),
 			);

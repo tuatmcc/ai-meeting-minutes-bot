@@ -2,8 +2,8 @@ import type { APIEmbed } from 'discord-api-types/v10';
 import type { WorkerEnv } from '../../env.js';
 import { summarizeForCatchUp } from '../../ai/summaries.js';
 import { getNotionDataSource } from '../../notion/meeting-pages.js';
-import { commandMessageAsComponentsV2, formatSessionStatus, meetingMessage, recordingEmbed, sessionStateMessage } from './views.js';
-import { editOriginalResponse, normalizeNotionPageId, SNOWFLAKE_PATTERN } from './protocol.js';
+import { commandMessageAsComponentsV2, formatSessionStatus, meetingMessage, recordingMessage, sessionStateMessage } from './views.js';
+import { createFollowupMessage, editOriginalResponse, normalizeNotionPageId, SNOWFLAKE_PATTERN } from './protocol.js';
 import type { CommandMessage, CommandParseResult, DiscordInteraction, ParsedCommand } from './types.js';
 
 export async function processCommand(
@@ -11,6 +11,7 @@ export async function processCommand(
 	interaction: DiscordInteraction,
 	env: WorkerEnv,
 	preserveComponentsV2 = false,
+	publishStartFollowup = false,
 ): Promise<void> {
 	const token = interaction.token;
 	if (!token) {
@@ -40,7 +41,24 @@ export async function processCommand(
 	}
 
 	const response = typeof message === 'string' ? { content: message } : message;
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, preserveComponentsV2 ? commandMessageAsComponentsV2(message) : response);
+	const responseUsesComponentsV2 = preserveComponentsV2 || (command.action === 'start' && typeof message !== 'string');
+	if (publishStartFollowup && command.action === 'start' && typeof message !== 'string') {
+		const followup = commandMessageAsComponentsV2(message);
+		const published = await createFollowupMessage(env.DISCORD_APPLICATION_ID, token, followup);
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			token,
+			commandMessageAsComponentsV2(
+				published ? '録音の開始通知をチャンネルに投稿しました。' : 'チャンネルへの通知に失敗しました。録音は開始されています。',
+			),
+		);
+		return;
+	}
+	await editOriginalResponse(
+		env.DISCORD_APPLICATION_ID,
+		token,
+		responseUsesComponentsV2 ? commandMessageAsComponentsV2(message) : response,
+	);
 }
 
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
@@ -127,18 +145,14 @@ async function startRecording(command: ParsedCommand, interactionId: string, env
 	}
 
 	const action = result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました';
-	return {
-		embeds: [
-			recordingEmbed(
-				result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
-				queued.gatewayConnected
-					? `${action}: <#${command.channelId}>`
-					: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
-				{ ...result.session, notionPageId, notionPageUrl },
-				notionPageCreationFailed,
-			),
-		],
-	};
+	return recordingMessage(
+		result.resumed ? '録音セッションを再開します' : '録音の開始要求を送信しました',
+		queued.gatewayConnected
+			? `${action}: <#${command.channelId}>`
+			: `${result.resumed ? '再開要求を受け付けました' : '開始要求を受け付けました'}。Gateway の接続待ちです: <#${command.channelId}>`,
+		{ ...result.session, notionPageId, notionPageUrl },
+		notionPageCreationFailed,
+	);
 }
 
 async function stopRecording(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
