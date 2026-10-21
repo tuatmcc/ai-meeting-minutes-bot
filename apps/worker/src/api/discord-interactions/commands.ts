@@ -83,11 +83,14 @@ export async function processCommand(
 
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	switch (command.action) {
-		case 'meeting':
-			return meetingMessage(
-				undefined,
-				Boolean(await env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`).getDefaultNotionParentPageId()),
-			);
+		case 'meeting': {
+			const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
+			const [parentPageId, dataSourceId] = await Promise.all([
+				session.getDefaultNotionParentPageId(),
+				session.getDefaultNotionDataSourceId(),
+			]);
+			return meetingMessage(undefined, Boolean(parentPageId && dataSourceId));
+		}
 		case 'start':
 			return startRecording(command, interactionId, env);
 		case 'stop':

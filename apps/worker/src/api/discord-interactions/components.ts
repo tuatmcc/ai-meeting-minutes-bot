@@ -282,14 +282,17 @@ async function showSavedNotionPagePicker(
 async function showMeetingMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
 	const componentContext = parseComponentContext(interaction);
-	const hasSavedNotionParentPage = componentContext
-		? Boolean(
-				await env.VOICE_CHANNEL_SESSION.getByName(
-					`${componentContext.guildId}:${componentContext.channelId}`,
-				).getDefaultNotionParentPageId(),
-			)
-		: false;
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage(undefined, hasSavedNotionParentPage));
+	const session = componentContext
+		? env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`)
+		: null;
+	const [parentPageId, dataSourceId] = session
+		? await Promise.all([session.getDefaultNotionParentPageId(), session.getDefaultNotionDataSourceId()])
+		: [null, null];
+	await editOriginalResponse(
+		env.DISCORD_APPLICATION_ID,
+		interaction.token,
+		meetingMessage(undefined, Boolean(parentPageId && dataSourceId)),
+	);
 }
 
 async function showDiscordOnlyUnavailableMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
