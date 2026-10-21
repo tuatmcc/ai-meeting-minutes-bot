@@ -33,6 +33,34 @@ export async function handleComponentInteraction(
 		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env, nextDatabase[2] === '1'));
 		return Response.json({ type: 6 });
 	}
+	const backPage = customId?.match(/^meeting_back_notion_page:([^:]+):([01])$/);
+	if (backPage) {
+		const dataSourceId = normalizeNotionPageId(backPage[1]);
+		if (!dataSourceId) return interactionMessage('Notion データベースを候補から選択してください。');
+		ctx.waitUntil(showNotionDatabasePicker(interaction, env, dataSourceId, backPage[2] === '1'));
+		return Response.json({ type: 6 });
+	}
+	const nextPage = customId?.match(/^meeting_next_notion_page:([^:]+):([01])$/);
+	if (nextPage) {
+		const notionParentPageId = normalizeNotionPageId(nextPage[1]);
+		if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		ctx.waitUntil(
+			processCommand(
+				{
+					action: 'start',
+					guildId: componentContext.guildId,
+					channelId: componentContext.channelId,
+					notionParentPageId,
+					rememberNotionParentPage: nextPage[2] === '1',
+				},
+				interaction,
+				env,
+				true,
+				true,
+			),
+		);
+		return Response.json({ type: 6 });
+	}
 	const toggleRemember = customId?.match(/^meeting_toggle_notion_remember:([^:]+):([01])$/);
 	if (toggleRemember) {
 		const dataSourceId = normalizeNotionPageId(toggleRemember[1]);
@@ -47,25 +75,12 @@ export async function handleComponentInteraction(
 		ctx.waitUntil(showNotionDatabasePicker(interaction, env, selectedId, selectedDatabase[1] === '1'));
 		return Response.json({ type: 6 });
 	}
-	const selectedPage = customId?.match(/^meeting_select_notion_page(?::([01]))?$/);
+	const selectedPage = customId?.match(/^meeting_select_notion_page:([^:]+):([01])$/);
 	if (selectedPage) {
-		const notionParentPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
-		if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
-		ctx.waitUntil(
-			processCommand(
-				{
-					action: 'start',
-					guildId: componentContext.guildId,
-					channelId: componentContext.channelId,
-					notionParentPageId,
-					rememberNotionParentPage: selectedPage[1] === '1',
-				},
-				interaction,
-				env,
-				true,
-				true,
-			),
-		);
+		const dataSourceId = normalizeNotionPageId(selectedPage[1]);
+		const selectedPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
+		if (!dataSourceId || !selectedPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env, selectedPage[2] === '1', selectedPageId));
 		return Response.json({ type: 6 });
 	}
 	switch (customId) {
@@ -172,6 +187,7 @@ async function showNotionPagePickerForSelection(
 	databaseId: string,
 	env: WorkerEnv,
 	rememberForVoiceChannel: boolean,
+	selectedPageId?: string,
 ): Promise<void> {
 	if (!interaction.token) return;
 	try {
@@ -184,7 +200,7 @@ async function showNotionPagePickerForSelection(
 			);
 			return;
 		}
-		await showNotionPagePicker(interaction, env, database, rememberForVoiceChannel);
+		await showNotionPagePicker(interaction, env, database, rememberForVoiceChannel, selectedPageId);
 	} catch (error) {
 		console.error('[notion] database selection failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
@@ -200,18 +216,29 @@ async function showNotionPagePicker(
 	env: WorkerEnv,
 	database: NotionDataSource,
 	rememberForVoiceChannel: boolean,
+	selectedPageId?: string,
 ): Promise<void> {
 	if (!interaction.token) return;
 	try {
 		const pages = await queryNotionDataSource(env, database, '');
+		const selectedPageExists = selectedPageId && pages.some((page) => page.pageId === selectedPageId);
 		const notice =
 			pages.length === 0
 				? 'このデータベースに選択できるページがありません。Notion の共有設定を確認して再読み込みしてください。'
-				: undefined;
+				: selectedPageId && !selectedPageExists
+					? '選択したページが見つかりません。もう一度選択してください。'
+					: undefined;
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
 			interaction.token,
-			notionParentPagePickerMessage(database.title, pages, database.dataSourceId, notice, rememberForVoiceChannel),
+			notionParentPagePickerMessage(
+				database.title,
+				pages,
+				database.dataSourceId,
+				notice,
+				rememberForVoiceChannel,
+				selectedPageExists ? selectedPageId : null,
+			),
 		);
 	} catch (error) {
 		console.error('[notion] database page query failed', error instanceof Error ? error.name : 'unknown error');

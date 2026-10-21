@@ -21,8 +21,10 @@ flowchart TD
     E -->|meeting_select_notion_database| Q["選択した DB と次へ・継続利用設定を表示"]
     E -->|meeting_toggle_notion_remember| Q
     E -->|meeting_next_notion_database| R["選択した DB 内の会議ページを表示"]
+    E -->|meeting_back_notion_page| Q
+    E -->|meeting_next_notion_page| S["選択した親ページで録音開始"]
     E -->|meeting_retry_notion_pages| T["会議ページ候補を再取得"]
-    E -->|meeting_select_notion_page| S["選択した親ページで録音開始"]
+    E -->|meeting_select_notion_page| R2["選択した親ページを画面に反映"]
     E -->|meeting_start_saved_notion| S
     E -->|meeting_setup_cancel| M
     E -->|その他| U["未対応の操作として応答"]
@@ -41,16 +43,17 @@ flowchart TD
     E --> F["継続利用を切り替えて次へ"]
     F --> G["DB 内の会議ページ候補を表示"]
     G --> I["会議ページを選択"]
-    I --> H["セッションを開始または再開"]
-    H --> J{"セッションが starting か"}
-    J -->|いいえ| Z["現在のセッション状態を返す"]
-    J -->|はい| K["チェック状態に応じて親ページを保存または解除"]
-    K --> L["Gateway に start を enqueue"]
-    L --> M["Notion 議事録ページを必要に応じて作成"]
-    M --> N["Gateway 接続状態と議事録リンクを返信"]
+    I --> J["次へを押す"]
+    J --> H["セッションを開始または再開"]
+    H --> K{"セッションが starting か"}
+    K -->|いいえ| Z["現在のセッション状態を返す"]
+    K -->|はい| L["設定に応じて親ページを保存または解除"]
+    L --> M["Gateway に start を enqueue"]
+    M --> N["Notion 議事録ページを必要に応じて作成"]
+    N --> O["Gateway 接続状態と議事録リンクを返信"]
 ```
 
-`/meeting` では Notion DB を選択してから「次へ」を押し、親ページを選びます。継続利用を有効にすると親ページを VC ごとに保存し、次回の `/meeting` で同じ親ページから録音を始められます。保存先を変更するときは「OFF」に切り替えると、次回以降の保存先設定を解除できます。Notion ページの初回作成に失敗しても録音開始要求は維持し、失敗内容を開始時の返信に含めます。
+`/meeting` では Notion DB を選択してから「次へ」を押し、親ページを選んでもう一度「次へ」を押すと録音を開始します。「戻る」で DB 選択に戻れます。継続利用を有効にすると親ページを VC ごとに保存し、次回の `/meeting` で同じ親ページから録音を始められます。保存先を変更するときは「OFF」に切り替えると、次回以降の保存先設定を解除できます。Notion ページの初回作成に失敗しても録音開始要求は維持し、失敗内容を開始時の返信に含めます。
 
 ## その他のコマンド
 
