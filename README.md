@@ -1,58 +1,30 @@
 # AI Meeting Minutes Bot
 
-Discord 上の会議音声を文字起こしし、Workers AI で議事録を作成して Notion に保存するプロジェクトです。Discord Voice を受信する gateway だけをセルフホストし、音声認識・セッション管理・議事録生成は Cloudflare に載せます。GPU やローカル文字起こしサーバーは不要です。
+Discord のボイスチャンネルでの会議音声を文字起こしし、AI で要約した議事録を作成して Notion に保存する Discord Bot です。
+GPU や文字起こし専用のローカルサーバーを用意することなく利用できます。
 
-## 構成
+## 主な機能
 
-- `apps/voice-gateway`: CPU で動作する Node.js サービスです。Discord Voice の音声を話者ごとに受信・復号し、16kHz mono PCM16 の WAV chunk を Worker に送信します。
-- `apps/worker`: Discord コマンド、Durable Objects によるセッション管理、Workers AI Whisper による文字起こし、AI 議事録生成と Notion 保存を提供します。
+- **音声の自動文字起こし & AI 議事録生成**: 会議の音声を文字起こしし、会議終了時に要約・議事録を自動生成します。
+- **Notion 連携**: 会議ごとに保存先の Notion データベースや親ページを選択でき、議事録ページを自動作成・更新します。
+- **会議中の途中要約 (`/imakinta`)**: 会議の途中でも、それまでの発話内容を要約して確認できます。
+- **セッションの再開**: 録音停止後 10 分以内であれば、同じ会議セッションを再開して文字起こしを継続できます。
 
-```text
-セルフホスト Voice gateway
-  Discord 音声受信 → 話者別 WAV chunk
-                           ↓
-Cloudflare Worker → R2 に一時保存 → Workers AI Whisper
-                                           ↓
-                              Durable Object に文字起こし保存
-                                           ↓
-                              Workers AI 議事録生成 → Notion
-```
+## コマンド一覧
 
-話者別 buffer は無音区間で区切り、10〜60秒程度で送信します。短い発話も開始から60秒経過した時点か、録音停止時に送信します。Worker への送信は録音と並行して行い、各リクエストで文字起こし結果を受け取ります。Cloudflare Queues は使用しません。
+すべてのコマンドは、対象のボイスチャンネルのチャット（テキストチャット）で実行します。
 
-Worker と gateway 間の HTTP 契約は [`contracts/openapi.yaml`](contracts/openapi.yaml) を参照してください。`/meeting` で Notion を選ぶと、会議ごとに保存先DBと親ページを選んで録音を開始できます。`/meeting_stop` で録音を停止し、`/status` で状態を確認、`/imakinta` で確定済みの文字起こしを要約します。停止後10分以内に `/meeting` から同じ親項目を選ぶと、同じ録音セッションを再開して文字起こしを継続します。AI議事録は選択した項目ごとに1ページを作成し、以降の会議では同じページを更新します。保存失敗は `/meeting_notion_retry` で再試行できます。
+| コマンド                | 説明                                                                                     |
+| :---------------------- | :--------------------------------------------------------------------------------------- |
+| `/meeting`              | 会議の録音・文字起こしを開始します（保存先の Notion データベースおよび親ページを選択）。 |
+| `/meeting_stop`         | 会議の録音・文字起こしを停止し、AI 議事録を生成して Notion に保存します。                |
+| `/status`               | 現在の録音状況や処理状態、接続状態を確認します。                                         |
+| `/imakinta`             | これまでの確定した会話内容をその場で要約してチャットに表示します。                       |
+| `/meeting_notion_retry` | Notion への議事録保存に失敗した場合に再試行します。                                      |
 
-## セルフホスト Gateway の起動
+## システム構成・セットアップ
 
-Docker と Docker Compose が使える常時稼働ホストを用意します。Discord Voice に対する外向き UDP 通信と、その応答を受信できるネットワークが必要です。Worker のデプロイと Discord Bot・Notion の設定は [`apps/worker/README.md`](apps/worker/README.md) を参照してください。
+本システムは以下の 2 つのサービスで構成されています。詳細なセットアップやデプロイ手順は各ドキュメントを参照してください。
 
-リポジトリのルートで環境ファイルを作成します。
-
-```sh
-cp apps/voice-gateway/production.env.example apps/voice-gateway/production.env
-```
-
-`production.env` に次を設定します。秘密情報を含むため Git にコミットしないでください。
-
-- `DISCORD_BOT_TOKEN`: Discord Bot token
-- `WORKER_API_URL`: デプロイ済み Worker の URL
-- `WORKER_API_TOKEN`: Worker の `GATEWAY_API_TOKEN` と同じ値
-- `WORKER_CONTROL_TOKEN`: Worker の `GATEWAY_CONTROL_TOKEN` と同じ値
-
-Compose は既存の外部ネットワーク `server_default` に参加します。ホストに存在しない場合は一度作成します。
-
-```sh
-docker network create server_default
-docker compose -f apps/voice-gateway/compose.yaml up -d --build
-docker compose -f apps/voice-gateway/compose.yaml logs -f voice-gateway
-```
-
-ログに `[gateway-control] connected` が出れば Worker との制御接続ができています。文字起こし用コンテナや GPU の設定は不要です。
-
-未送信・未確定の WAV とチェックポイントは Docker volume に保存されます。成功後に一時データを削除し、失敗時は調査・再送用に残します。Worker も推論前に音声を R2 に保存し、成功後に削除します。Gateway との制御接続が切れると進行中のセッションを失敗として終了し、対象 VC のチャットにエラー埋め込みを送信します。Gateway 再起動後に録音を自動再開することはありません。
-
-停止は次のコマンドで行います。失敗時のデータを保持するため `down -v` は実行しないでください。
-
-```sh
-docker compose -f apps/voice-gateway/compose.yaml down
-```
+- **[Worker (`apps/worker`)](apps/worker/README.md)**: Discord コマンドの受付、文字起こし、AI 議事録生成、Notion への保存を担当する Cloudflare Worker です。
+- **[Voice Gateway (`apps/voice-gateway`)](apps/voice-gateway/README.md)**: Discord ボイスチャンネルの音声を受信し、Worker に中継するゲートウェイサービスです。常時稼働ホスト上でセルフホストして動作させます。
