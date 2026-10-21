@@ -129,8 +129,10 @@ export function notionDatabasePickerMessage(
 	rememberDefault = false,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
-		{ type: ComponentType.TextDisplay, content: '## Notion の保存先を選択' },
-		{ type: ComponentType.TextDisplay, content: notice ?? '議事録を保存するデータベースを選んでください。' },
+		{ type: ComponentType.TextDisplay, content: '-# STEP 1 / 2' },
+		{ type: ComponentType.TextDisplay, content: '# Notion の保存先を選択' },
+		{ type: ComponentType.TextDisplay, content: '議事録を保存するデータベースを選んでください。' },
+		...(notice ? [{ type: ComponentType.TextDisplay as const, content: `⚠️ ${notice}` }] : []),
 	];
 	if (databases.length > 0) {
 		components.push({
@@ -151,34 +153,25 @@ export function notionDatabasePickerMessage(
 			],
 		});
 		components.push({
-			type: ComponentType.ActionRow,
+			type: ComponentType.Section,
 			components: [
 				{
-					type: ComponentType.Button,
-					style: ButtonStyle.Secondary,
-					label: `${rememberDefault ? '☑' : '☐'} 次回以降もこのボイスチャットではこの議事録を使用する`,
-					custom_id: selectedDatabaseId
-						? `meeting_toggle_notion_remember:${selectedDatabaseId}:${rememberDefault ? '0' : '1'}`
-						: 'meeting_toggle_notion_remember',
-					disabled: !selectedDatabaseId,
+					type: ComponentType.TextDisplay,
+					content: '**保存先を記憶**\nこのボイスチャットで次回も使用します。',
 				},
 			],
+			accessory: {
+				type: ComponentType.Button,
+				style: rememberDefault ? ButtonStyle.Success : ButtonStyle.Secondary,
+				label: rememberDefault ? 'ON' : 'OFF',
+				custom_id: selectedDatabaseId
+					? `meeting_toggle_notion_remember:${selectedDatabaseId}:${rememberDefault ? '0' : '1'}`
+					: 'meeting_toggle_notion_remember',
+				disabled: !selectedDatabaseId,
+			},
 		});
-		components.push({
-			type: ComponentType.ActionRow,
-			components: [
-				{
-					type: ComponentType.Button,
-					style: ButtonStyle.Primary,
-					label: '次へ',
-					custom_id: selectedDatabaseId
-						? `meeting_next_notion_database:${selectedDatabaseId}:${rememberDefault ? '1' : '0'}`
-						: 'meeting_next_notion_database',
-					disabled: !selectedDatabaseId,
-				},
-			],
-		});
-	} else if (!notice) {
+	}
+	if (databases.length === 0 && !notice) {
 		components.push({
 			type: ComponentType.TextDisplay,
 			content: 'Botに共有されているデータベースが見つかりませんでした。Notionの共有設定を確認して再試行してください。',
@@ -197,15 +190,26 @@ export function notionDatabasePickerMessage(
 			],
 		});
 	}
+	components.push({ type: ComponentType.Separator, divider: true, spacing: 1 });
 	components.push({
-		type: ComponentType.Section,
-		components: [{ type: ComponentType.TextDisplay, content: '**1/2**' }],
-		accessory: {
-			type: ComponentType.Button,
-			style: ButtonStyle.Secondary,
-			label: '戻る',
-			custom_id: 'meeting_setup_cancel',
-		},
+		type: ComponentType.ActionRow,
+		components: [
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Secondary,
+				label: '戻る',
+				custom_id: 'meeting_setup_cancel',
+			},
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Primary,
+				label: '次へ',
+				custom_id: selectedDatabaseId
+					? `meeting_next_notion_database:${selectedDatabaseId}:${rememberDefault ? '1' : '0'}`
+					: 'meeting_next_notion_database',
+				disabled: !selectedDatabaseId,
+			},
+		],
 	});
 	return {
 		flags: MessageFlags.IsComponentsV2,
@@ -219,20 +223,22 @@ export function notionParentPagePickerMessage(
 	dataSourceId: string,
 	notice?: string,
 	rememberForVoiceChannel = false,
+	selectedPageId?: string | null,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
-		{ type: ComponentType.TextDisplay, content: '## 録音する会議の親ページを選択' },
+		{ type: ComponentType.TextDisplay, content: '-# STEP 2 / 2' },
+		{ type: ComponentType.TextDisplay, content: '# 録音する会議の親ページを選択' },
 		{
 			type: ComponentType.TextDisplay,
-			content: `データベース: **${databaseTitle}**\n選んだページの下に AI 議事録を作成し、録音を開始します。`,
+			content: `データベース: **${databaseTitle}**\n録音する会議の親ページを選んでください。`,
+		},
+		{
+			type: ComponentType.TextDisplay,
+			content: rememberForVoiceChannel
+				? '**保存先を記憶: ON**\n選んだページを次回以降もこのボイスチャットで使用します。'
+				: '**保存先を記憶: OFF**\n選んだページは今回のみ使用します。',
 		},
 	];
-	components.push({
-		type: ComponentType.TextDisplay,
-		content: rememberForVoiceChannel
-			? '選んだページを次回以降もこのボイスチャットの保存先として使います。'
-			: '保存先は今回のみ使用します。',
-	});
 	if (notice) components.push({ type: ComponentType.TextDisplay, content: notice });
 	if (pages.length > 0) {
 		components.push({
@@ -240,9 +246,13 @@ export function notionParentPagePickerMessage(
 			components: [
 				{
 					type: ComponentType.StringSelect,
-					custom_id: `meeting_select_notion_page:${rememberForVoiceChannel ? '1' : '0'}`,
+					custom_id: `meeting_select_notion_page:${dataSourceId}:${rememberForVoiceChannel ? '1' : '0'}`,
 					placeholder: '録音する会議の親ページを選択',
-					options: pages.map((page) => ({ label: page.title.slice(0, 100), value: page.pageId })),
+					options: pages.map((page) => ({
+						label: page.title.slice(0, 100),
+						value: page.pageId,
+						...(page.pageId === selectedPageId ? { default: true } : {}),
+					})),
 					min_values: 1,
 					max_values: 1,
 				},
@@ -262,15 +272,26 @@ export function notionParentPagePickerMessage(
 			],
 		});
 	}
+	components.push({ type: ComponentType.Separator, divider: true, spacing: 1 });
 	components.push({
-		type: ComponentType.Section,
-		components: [{ type: ComponentType.TextDisplay, content: '**2/2**' }],
-		accessory: {
-			type: ComponentType.Button,
-			style: ButtonStyle.Secondary,
-			label: '戻る',
-			custom_id: 'meeting_setup_cancel',
-		},
+		type: ComponentType.ActionRow,
+		components: [
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Secondary,
+				label: '戻る',
+				custom_id: `meeting_back_notion_page:${dataSourceId}:${rememberForVoiceChannel ? '1' : '0'}`,
+			},
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Primary,
+				label: '次へ',
+				custom_id: selectedPageId
+					? `meeting_next_notion_page:${selectedPageId}:${rememberForVoiceChannel ? '1' : '0'}`
+					: 'meeting_next_notion_page',
+				disabled: !selectedPageId,
+			},
+		],
 	});
 	return {
 		flags: MessageFlags.IsComponentsV2,
