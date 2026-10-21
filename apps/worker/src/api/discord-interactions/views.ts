@@ -129,8 +129,10 @@ export function notionDatabasePickerMessage(
 	rememberDefault = false,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
-		{ type: ComponentType.TextDisplay, content: '## Notion の保存先を選択' },
-		{ type: ComponentType.TextDisplay, content: notice ?? '議事録を保存するデータベースを選んでください。' },
+		{ type: ComponentType.TextDisplay, content: '-# STEP 1 / 2' },
+		{ type: ComponentType.TextDisplay, content: '# Notion の保存先を選択' },
+		{ type: ComponentType.TextDisplay, content: '議事録を保存するデータベースを選んでください。' },
+		...(notice ? [{ type: ComponentType.TextDisplay as const, content: `⚠️ ${notice}` }] : []),
 	];
 	if (databases.length > 0) {
 		components.push({
@@ -151,34 +153,25 @@ export function notionDatabasePickerMessage(
 			],
 		});
 		components.push({
-			type: ComponentType.ActionRow,
+			type: ComponentType.Section,
 			components: [
 				{
-					type: ComponentType.Button,
-					style: ButtonStyle.Secondary,
-					label: `${rememberDefault ? '☑' : '☐'} 次回以降もこのボイスチャットではこの議事録を使用する`,
-					custom_id: selectedDatabaseId
-						? `meeting_toggle_notion_remember:${selectedDatabaseId}:${rememberDefault ? '0' : '1'}`
-						: 'meeting_toggle_notion_remember',
-					disabled: !selectedDatabaseId,
+					type: ComponentType.TextDisplay,
+					content: '**保存先を記憶**\nこのボイスチャットで次回も使用します。',
 				},
 			],
+			accessory: {
+				type: ComponentType.Button,
+				style: rememberDefault ? ButtonStyle.Success : ButtonStyle.Secondary,
+				label: rememberDefault ? 'ON' : 'OFF',
+				custom_id: selectedDatabaseId
+					? `meeting_toggle_notion_remember:${selectedDatabaseId}:${rememberDefault ? '0' : '1'}`
+					: 'meeting_toggle_notion_remember',
+				disabled: !selectedDatabaseId,
+			},
 		});
-		components.push({
-			type: ComponentType.ActionRow,
-			components: [
-				{
-					type: ComponentType.Button,
-					style: ButtonStyle.Primary,
-					label: '次へ',
-					custom_id: selectedDatabaseId
-						? `meeting_next_notion_database:${selectedDatabaseId}:${rememberDefault ? '1' : '0'}`
-						: 'meeting_next_notion_database',
-					disabled: !selectedDatabaseId,
-				},
-			],
-		});
-	} else if (!notice) {
+	}
+	if (databases.length === 0 && !notice) {
 		components.push({
 			type: ComponentType.TextDisplay,
 			content: 'Botに共有されているデータベースが見つかりませんでした。Notionの共有設定を確認して再試行してください。',
@@ -197,15 +190,26 @@ export function notionDatabasePickerMessage(
 			],
 		});
 	}
+	components.push({ type: ComponentType.Separator, divider: true, spacing: 1 });
 	components.push({
-		type: ComponentType.Section,
-		components: [{ type: ComponentType.TextDisplay, content: '**1/2**' }],
-		accessory: {
-			type: ComponentType.Button,
-			style: ButtonStyle.Secondary,
-			label: '戻る',
-			custom_id: 'meeting_setup_cancel',
-		},
+		type: ComponentType.ActionRow,
+		components: [
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Secondary,
+				label: '戻る',
+				custom_id: 'meeting_setup_cancel',
+			},
+			{
+				type: ComponentType.Button,
+				style: ButtonStyle.Primary,
+				label: '次へ',
+				custom_id: selectedDatabaseId
+					? `meeting_next_notion_database:${selectedDatabaseId}:${rememberDefault ? '1' : '0'}`
+					: 'meeting_next_notion_database',
+				disabled: !selectedDatabaseId,
+			},
+		],
 	});
 	return {
 		flags: MessageFlags.IsComponentsV2,
