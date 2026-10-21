@@ -11,7 +11,6 @@ if (!/^\d{17,20}$/.test(DISCORD_APPLICATION_ID)) {
 }
 
 const commands = [
-	{ name: 'meeting_stop', description: 'このボイスチャンネルの録音を停止します', type: 1 },
 	{ name: 'imakinta', description: '会議の現在地を短く要約します', type: 1 },
 	{ name: 'status', description: 'このボイスチャンネルの録音状態を表示します', type: 1 },
 	{ name: 'meeting_notion_retry', description: '直近のNotion議事録保存失敗を再試行します', type: 1 },

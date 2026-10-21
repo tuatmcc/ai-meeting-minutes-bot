@@ -67,7 +67,7 @@ export async function handleDiscordInteraction(request: Request, env: WorkerEnv,
 	const parsed = parseCommand(value);
 	if (!parsed.ok) {
 		return interactionMessage(
-			'対象のボイスチャンネルのチャットで `/meeting`、`/meeting_stop`、`/imakinta`、`/status`、または `/meeting_notion_retry` を実行してください。',
+			'対象のボイスチャンネルのチャットで `/meeting`、`/imakinta`、`/status`、または `/meeting_notion_retry` を実行してください。',
 		);
 	}
 

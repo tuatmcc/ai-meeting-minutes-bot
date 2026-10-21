@@ -247,7 +247,7 @@ export function parseCommand(interaction: DiscordInteraction): CommandParseResul
 			(sourceChannel.id !== channelId ||
 				(sourceChannel.type !== undefined && sourceChannel.type !== 2) ||
 				(sourceChannel.guild_id !== undefined && sourceChannel.guild_id !== guildId))) ||
-		(name !== 'meeting' && name !== 'meeting_stop' && name !== 'imakinta' && name !== 'status' && name !== 'meeting_notion_retry')
+		(name !== 'meeting' && name !== 'imakinta' && name !== 'status' && name !== 'meeting_notion_retry')
 	) {
 		return { ok: false, reason: 'unsupported' };
 	}
@@ -256,9 +256,6 @@ export function parseCommand(interaction: DiscordInteraction): CommandParseResul
 	switch (name) {
 		case 'meeting':
 			action = 'meeting';
-			break;
-		case 'meeting_stop':
-			action = 'stop';
 			break;
 		case 'imakinta':
 			action = 'imakita';
