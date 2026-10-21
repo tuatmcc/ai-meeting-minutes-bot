@@ -79,9 +79,14 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 			ctx.storage.sql.exec(`
 				CREATE TABLE IF NOT EXISTS notion_preferences (
 					id INTEGER PRIMARY KEY CHECK (id = 1),
-					parent_page_id TEXT NOT NULL
+					parent_page_id TEXT NOT NULL,
+					data_source_id TEXT
 				)
 			`);
+			const notionPreferenceColumns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(notion_preferences)').toArray();
+			if (!notionPreferenceColumns.some((column) => column.name === 'data_source_id')) {
+				ctx.storage.sql.exec('ALTER TABLE notion_preferences ADD COLUMN data_source_id TEXT');
+			}
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
 			if (!columns.some((column) => column.name === 'notion_parent_page_id')) {
 				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_parent_page_id TEXT');
@@ -229,14 +234,23 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 		);
 	}
 
-	async setDefaultNotionParentPageId(parentPageId: string | null): Promise<void> {
+	async getDefaultNotionDataSourceId(): Promise<string | null> {
+		return (
+			this.ctx.storage.sql
+				.exec<{ data_source_id: string | null }>('SELECT data_source_id FROM notion_preferences WHERE id = 1')
+				.toArray()[0]?.data_source_id ?? null
+		);
+	}
+
+	async setDefaultNotionParentPageId(parentPageId: string | null, dataSourceId?: string): Promise<void> {
 		if (!parentPageId) {
 			this.ctx.storage.sql.exec('DELETE FROM notion_preferences WHERE id = 1');
 			return;
 		}
 		this.ctx.storage.sql.exec(
-			'INSERT INTO notion_preferences (id, parent_page_id) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET parent_page_id = excluded.parent_page_id',
+			'INSERT INTO notion_preferences (id, parent_page_id, data_source_id) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET parent_page_id = excluded.parent_page_id, data_source_id = excluded.data_source_id',
 			parentPageId,
+			dataSourceId ?? null,
 		);
 	}
 

@@ -120,7 +120,10 @@ async function startRecording(command: ParsedCommand, interactionId: string, env
 		return sessionStateMessage(result.session, command.channelId);
 	}
 	if (command.rememberNotionParentPage !== undefined) {
-		await session.setDefaultNotionParentPageId(command.rememberNotionParentPage ? notionParentPageId : null);
+		await session.setDefaultNotionParentPageId(
+			command.rememberNotionParentPage ? notionParentPageId : null,
+			command.rememberNotionParentPage ? command.notionDataSourceId : undefined,
+		);
 	}
 
 	const queued = await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({
