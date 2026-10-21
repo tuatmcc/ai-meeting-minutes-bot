@@ -20,7 +20,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選び、会議ごとに保存先DBと親ページを選択すると録音が始まります。`/meeting_stop` で録音を停止します。`/imakinta` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選び、DB と親ページを選択すると録音が始まります。DB 選択時に継続利用を有効にすると、そのVCの次回以降は保存済みの親ページで録音を開始できます。`/meeting_stop` で録音を停止します。`/imakinta` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 

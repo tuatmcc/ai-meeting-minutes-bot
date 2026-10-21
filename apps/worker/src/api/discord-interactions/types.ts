@@ -33,6 +33,7 @@ export type ParsedCommand = {
 	guildId: string;
 	channelId: string;
 	notionParentPageId: string | null;
+	rememberNotionParentPage?: boolean;
 };
 
 export type CommandMessage = string | RESTPatchAPIInteractionOriginalResponseJSONBody;
