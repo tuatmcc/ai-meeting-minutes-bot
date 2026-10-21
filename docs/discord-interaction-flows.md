@@ -15,8 +15,9 @@ flowchart TD
     C -->|Application Command| D{"コマンド名"}
     C -->|Message Component| E{"custom_id"}
     D -->|meeting| M["VC の設定パネルを表示"]
-    D -->|meeting_stop / status / imakinta / meeting_notion_retry| O["録音状態に応じた処理"]
+    D -->|status / imakinta / meeting_notion_retry| O["録音状態に応じた処理"]
 
+    E -->|meeting_stop| O
     E -->|meeting_setup_notion| N["Notion DB 選択画面を表示"]
     E -->|meeting_select_notion_database| Q["選択した DB と次へ・継続利用設定を表示"]
     E -->|meeting_toggle_notion_remember| Q
@@ -57,11 +58,12 @@ flowchart TD
 
 ## その他のコマンド
 
-| コマンド                | 主な分岐・処理                                                                |
-| ----------------------- | ----------------------------------------------------------------------------- |
-| `/meeting_stop`         | 録音中または開始中なら Gateway に stop を enqueue。処理中などは現在状態を返信 |
-| `/status`               | 有効なセッション、なければ直近のセッションと Gateway 接続状態を返信           |
-| `/imakinta`             | 録音中か、確定文字起こしがあるかを確認して Workers AI で要約                  |
-| `/meeting_notion_retry` | 直近の Notion 出力を再試行できるか確認して実行                                |
+| コマンド                | 主な分岐・処理                                                      |
+| ----------------------- | ------------------------------------------------------------------- |
+| `/status`               | 有効なセッション、なければ直近のセッションと Gateway 接続状態を返信 |
+| `/imakinta`             | 録音中か、確定文字起こしがあるかを確認して Workers AI で要約        |
+| `/meeting_notion_retry` | 直近の Notion 出力を再試行できるか確認して実行                      |
 
 セッション状態と継続利用する親ページは VC ごとの Durable Object に保存されます。Interaction をまたぐ DB 選択と継続利用状態は画面の `custom_id` で継続し、会議ページを選んだ後に録音セッションを開始します。
+
+録音中のメッセージにある「録音を終了」ボタンは、Gateway に stop を enqueue します。

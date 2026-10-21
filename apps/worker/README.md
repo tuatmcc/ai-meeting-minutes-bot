@@ -1,6 +1,6 @@
 # Worker
 
-Cloudflare WorkerはDiscordの `/meeting`・`/meeting_stop`・`/status`・`/imakinta`・`/meeting_notion_retry` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
+Cloudflare WorkerはDiscordの `/meeting`・`/status`・`/imakinta`・`/meeting_notion_retry` Interaction、voice-gateway向けセッションAPI、Gateway ControlへのWebSocket接続を提供します。
 
 各セッションは `guildId:channelId` で決まるDurable Objectに保存されます。セルフホストの voice-gateway が話者別 WAV chunk を認証付き HTTP で送信し、Worker は `@cf/openai/whisper-large-v3-turbo` で文字起こしします。GPU やローカル文字起こしサーバーは不要です。
 
@@ -20,7 +20,7 @@ DiscordコマンドはWorkerのデプロイ後にGitHub Actionsからglobal comm
 pnpm --filter @ai-meeting-minutes/worker register:commands
 ```
 
-Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選び、DB と親ページを選択すると録音が始まります。DB 選択時に継続利用を有効にすると、そのVCの次回以降は前回と同じ DB の会議ページ一覧から録音先を選べます。`/meeting_stop` で録音を停止します。`/imakinta` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
+Botには対象guildへの参加とVoice ChannelのView Channel・Connect権限が必要です。切断エラー埋め込みの送信には対象VCのチャットでSend Messages権限も必要です。コマンドは対象VCのチャット内で入力します。`/meeting` で Notion を選び、DB と親ページを選択すると録音が始まります。DB 選択時に継続利用を有効にすると、そのVCの次回以降は前回と同じ DB の会議ページ一覧から録音先を選べます。録音中のメッセージにある「録音を終了」ボタンで録音を停止できます。`/imakinta` は確定した文字起こしをWorkers AIで要約します。WorkerはInteractionの `channel_id` を使って対象VCを決めます。
 
 `/status` は録音中・処理中のセッション、または直近のセッションとNotion保存状態に加えて、Workerから見たGatewayの接続状態を表示します。
 
