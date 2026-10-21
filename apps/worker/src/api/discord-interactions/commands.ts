@@ -110,7 +110,7 @@ async function executeCommand(command: ParsedCommand, interactionId: string, env
 
 async function startRecording(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	const notionParentPageId = command.notionParentPageId;
-	if (!notionParentPageId) return 'Notion の親ページを選択してください。';
+	if (!notionParentPageId) return '議事録の回を選択してください。';
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`);
 
 	const result = await session.startSession(command.guildId, command.channelId, interactionId, notionParentPageId);

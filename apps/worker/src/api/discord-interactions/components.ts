@@ -44,7 +44,7 @@ export async function handleComponentInteraction(
 	if (nextPage) {
 		const dataSourceId = normalizeNotionPageId(nextPage[1]);
 		const notionParentPageId = normalizeNotionPageId(nextPage[2]);
-		if (!dataSourceId || !notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		if (!dataSourceId || !notionParentPageId) return interactionMessage('議事録の回を候補から選択してください。');
 		ctx.waitUntil(
 			processCommand(
 				{
@@ -81,7 +81,7 @@ export async function handleComponentInteraction(
 	if (selectedPage) {
 		const dataSourceId = normalizeNotionPageId(selectedPage[1]);
 		const selectedPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
-		if (!dataSourceId || !selectedPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		if (!dataSourceId || !selectedPageId) return interactionMessage('議事録の回を候補から選択してください。');
 		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env, selectedPage[2] === '1', selectedPageId));
 		return Response.json({ type: 6 });
 	}

@@ -49,14 +49,14 @@ export function meetingMessage(notice?: string, useSavedNotionParentPage = false
 							{
 								type: ComponentType.TextDisplay,
 								content: useSavedNotionParentPage
-									? '**📖 Notion に保存**\n前回と同じデータベースの議事録一覧から選べます。'
+									? '**📖 Notion に保存**\n前回と同じ議事録から選べます。'
 									: '**📖 Notion に保存**\n議事録を Notion で整理・管理できます。\n会議ごとに保存先を選んで録音を開始します。',
 							},
 						],
 						accessory: {
 							type: ComponentType.Button,
 							style: ButtonStyle.Primary,
-							label: useSavedNotionParentPage ? '前回と同じ議事録一覧から選択' : 'Notion の設定へ →',
+							label: useSavedNotionParentPage ? '前回と同じ議事録から選択' : 'Notion の設定へ →',
 							custom_id: useSavedNotionParentPage ? 'meeting_select_saved_notion' : 'meeting_setup_notion',
 						},
 					},
@@ -131,7 +131,7 @@ export function notionDatabasePickerMessage(
 	const components: APIComponentInContainer[] = [
 		{ type: ComponentType.TextDisplay, content: '-# STEP 1 / 2' },
 		{ type: ComponentType.TextDisplay, content: '# Notion の保存先を選択' },
-		{ type: ComponentType.TextDisplay, content: '議事録を保存するデータベースを選んでください。' },
+		{ type: ComponentType.TextDisplay, content: '議事録（Notion データベース）を選んでください。' },
 		...(notice ? [{ type: ComponentType.TextDisplay as const, content: `⚠️ ${notice}` }] : []),
 	];
 	if (databases.length > 0) {
@@ -227,16 +227,10 @@ export function notionParentPagePickerMessage(
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
 		{ type: ComponentType.TextDisplay, content: '-# STEP 2 / 2' },
-		{ type: ComponentType.TextDisplay, content: '# 録音する会議の親ページを選択' },
+		{ type: ComponentType.TextDisplay, content: '# 録音する議事録の回を選択' },
 		{
 			type: ComponentType.TextDisplay,
-			content: `データベース: **${databaseTitle}**\n録音する会議の親ページを選んでください。`,
-		},
-		{
-			type: ComponentType.TextDisplay,
-			content: rememberForVoiceChannel
-				? '**保存先を記憶: ON**\n選んだページを次回以降もこのボイスチャットで使用します。'
-				: '**保存先を記憶: OFF**\n選んだページは今回のみ使用します。',
+			content: `議事録: **${databaseTitle}**\n録音する議事録の回を選んでください。`,
 		},
 	];
 	if (notice) components.push({ type: ComponentType.TextDisplay, content: notice });
@@ -247,7 +241,7 @@ export function notionParentPagePickerMessage(
 				{
 					type: ComponentType.StringSelect,
 					custom_id: `meeting_select_notion_page:${dataSourceId}:${rememberForVoiceChannel ? '1' : '0'}`,
-					placeholder: '録音する会議の親ページを選択',
+					placeholder: '録音する議事録の回を選択',
 					options: pages.map((page) => ({
 						label: page.title.slice(0, 100),
 						value: page.pageId,
