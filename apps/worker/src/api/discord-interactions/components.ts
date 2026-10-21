@@ -40,10 +40,11 @@ export async function handleComponentInteraction(
 		ctx.waitUntil(showNotionDatabasePicker(interaction, env, dataSourceId, backPage[2] === '1'));
 		return Response.json({ type: 6 });
 	}
-	const nextPage = customId?.match(/^meeting_next_notion_page:([^:]+):([01])$/);
+	const nextPage = customId?.match(/^meeting_next_notion_page:([^:]+):([^:]+):([01])$/);
 	if (nextPage) {
-		const notionParentPageId = normalizeNotionPageId(nextPage[1]);
-		if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		const dataSourceId = normalizeNotionPageId(nextPage[1]);
+		const notionParentPageId = normalizeNotionPageId(nextPage[2]);
+		if (!dataSourceId || !notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
 		ctx.waitUntil(
 			processCommand(
 				{
@@ -51,7 +52,8 @@ export async function handleComponentInteraction(
 					guildId: componentContext.guildId,
 					channelId: componentContext.channelId,
 					notionParentPageId,
-					rememberNotionParentPage: nextPage[2] === '1',
+					notionDataSourceId: dataSourceId,
+					rememberNotionParentPage: nextPage[3] === '1',
 				},
 				interaction,
 				env,
@@ -104,8 +106,8 @@ export async function handleComponentInteraction(
 		case 'meeting_setup_notion':
 			ctx.waitUntil(showNotionDatabasePicker(interaction, env));
 			return Response.json({ type: 6 });
-		case 'meeting_start_saved_notion':
-			ctx.waitUntil(startSavedNotionMeeting(interaction, env, componentContext));
+		case 'meeting_select_saved_notion':
+			ctx.waitUntil(showSavedNotionPagePicker(interaction, env, componentContext));
 			return Response.json({ type: 6 });
 		case 'meeting_setup_cancel':
 			ctx.waitUntil(showMeetingMessage(interaction, env));
@@ -256,25 +258,25 @@ async function showNotionPagePicker(
 	}
 }
 
-async function startSavedNotionMeeting(interaction: DiscordInteraction, env: WorkerEnv, componentContext: ComponentContext): Promise<void> {
+async function showSavedNotionPagePicker(
+	interaction: DiscordInteraction,
+	env: WorkerEnv,
+	componentContext: ComponentContext,
+): Promise<void> {
 	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
-	const notionParentPageId = await session.getDefaultNotionParentPageId();
+	const [notionParentPageId, dataSourceId] = await Promise.all([
+		session.getDefaultNotionParentPageId(),
+		session.getDefaultNotionDataSourceId(),
+	]);
 	if (!notionParentPageId) {
 		await showMeetingMessage(interaction, env);
 		return;
 	}
-	await processCommand(
-		{
-			action: 'start',
-			guildId: componentContext.guildId,
-			channelId: componentContext.channelId,
-			notionParentPageId,
-		},
-		interaction,
-		env,
-		true,
-		true,
-	);
+	if (!dataSourceId) {
+		await showNotionDatabasePicker(interaction, env, undefined, true);
+		return;
+	}
+	await showNotionPagePickerForSelection(interaction, dataSourceId, env, true, notionParentPageId);
 }
 
 async function showMeetingMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {

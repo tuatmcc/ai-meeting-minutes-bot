@@ -49,15 +49,15 @@ export function meetingMessage(notice?: string, useSavedNotionParentPage = false
 							{
 								type: ComponentType.TextDisplay,
 								content: useSavedNotionParentPage
-									? '**📖 Notion に保存**\nこのボイスチャットでは、前回と同じ議事録を使えます。'
+									? '**📖 Notion に保存**\n前回と同じデータベースの議事録一覧から選べます。'
 									: '**📖 Notion に保存**\n議事録を Notion で整理・管理できます。\n会議ごとに保存先を選んで録音を開始します。',
 							},
 						],
 						accessory: {
 							type: ComponentType.Button,
 							style: ButtonStyle.Primary,
-							label: useSavedNotionParentPage ? '前回と同じ議事録で開始' : 'Notion の設定へ →',
-							custom_id: useSavedNotionParentPage ? 'meeting_start_saved_notion' : 'meeting_setup_notion',
+							label: useSavedNotionParentPage ? '前回と同じ議事録一覧から選択' : 'Notion の設定へ →',
+							custom_id: useSavedNotionParentPage ? 'meeting_select_saved_notion' : 'meeting_setup_notion',
 						},
 					},
 					...(useSavedNotionParentPage
@@ -287,7 +287,7 @@ export function notionParentPagePickerMessage(
 				style: ButtonStyle.Primary,
 				label: '次へ',
 				custom_id: selectedPageId
-					? `meeting_next_notion_page:${selectedPageId}:${rememberForVoiceChannel ? '1' : '0'}`
+					? `meeting_next_notion_page:${dataSourceId}:${selectedPageId}:${rememberForVoiceChannel ? '1' : '0'}`
 					: 'meeting_next_notion_page',
 				disabled: !selectedPageId,
 			},
