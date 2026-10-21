@@ -29,8 +29,11 @@ client.on(Events.Error, (error) => {
 await client.login(config.token);
 await clientReady;
 
-const gatewayControl = new GatewayControlClient(config.workerControlUrl, config.workerControlToken, (command) =>
-	recordingManager.handleGatewayCommand(command),
+const gatewayControl = new GatewayControlClient(
+	config.workerControlUrl,
+	config.workerControlToken,
+	(command) => recordingManager.handleGatewayCommand(command),
+	() => recordingManager.activeSessionIds,
 );
 const gatewayControlTask = gatewayControl.run();
 let shuttingDown = false;

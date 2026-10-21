@@ -36,6 +36,7 @@ export class GatewayControlClient {
 		private readonly url: string,
 		private readonly token: string,
 		private readonly onCommand: (command: GatewayCommand) => Promise<void>,
+		private readonly getActiveSessionIds: () => string[],
 	) {}
 
 	async run(): Promise<void> {
@@ -116,7 +117,7 @@ export class GatewayControlClient {
 					socket.close(1000, 'gateway shutting down');
 					return;
 				}
-				socket.send(JSON.stringify({ type: 'authenticate', token: this.token }));
+				socket.send(JSON.stringify({ type: 'authenticate', token: this.token, activeSessionIds: this.getActiveSessionIds() }));
 			});
 
 			socket.addEventListener('message', (event) => {

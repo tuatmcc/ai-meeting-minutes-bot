@@ -39,6 +39,10 @@ export class RecordingManager {
 		return this.activeRecordings.size;
 	}
 
+	get activeSessionIds(): string[] {
+		return [...this.activeRecordings.values()].map(({ command }) => command.sessionId);
+	}
+
 	beginShutdown(): void {
 		this.acceptingStarts = false;
 	}
