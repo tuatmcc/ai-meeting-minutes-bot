@@ -20,6 +20,8 @@ type GatewayAttachment = {
 
 const CONTROL_PATH = '/api/v1/gateway-control/connect';
 const COMMAND_ACK_TIMEOUT_MS = 60_000;
+const GATEWAY_DISCONNECT_GRACE_MS = 60_000;
+const GATEWAY_DISCONNECTED_AT_KEY = 'gateway-disconnected-at';
 
 export class GatewayControl extends DurableObject<WorkerEnv> {
 	constructor(ctx: DurableObjectState, env: WorkerEnv) {
@@ -59,10 +61,25 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 	}
 
 	async alarm(): Promise<void> {
+		const disconnectedAt = await this.ctx.storage.get<number>(GATEWAY_DISCONNECTED_AT_KEY);
+		if (disconnectedAt !== undefined && !this.authenticatedGatewaySocket()) {
+			const failureAt = disconnectedAt + GATEWAY_DISCONNECT_GRACE_MS;
+			if (Date.now() < failureAt) {
+				await this.ctx.storage.setAlarm(failureAt);
+				return;
+			}
+			if (!(await this.failDisconnectedSessions())) {
+				await this.ctx.storage.setAlarm(Date.now() + COMMAND_ACK_TIMEOUT_MS);
+				return;
+			}
+			await this.ctx.storage.delete(GATEWAY_DISCONNECTED_AT_KEY);
+		}
+
 		const inFlight = this.ctx.storage.sql
 			.exec<CommandRow>("SELECT * FROM commands WHERE state = 'in_flight' ORDER BY created_at, rowid LIMIT 1")
 			.toArray()[0];
 		if (!inFlight) {
+			await this.ctx.storage.deleteAlarm();
 			return;
 		}
 
@@ -96,6 +113,11 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				socket.close(1008, 'Unauthorized');
 				return;
 			}
+			const activeSessionIds = frame.activeSessionIds === undefined ? null : parseActiveSessionIds(frame.activeSessionIds);
+			if (frame.activeSessionIds !== undefined && activeSessionIds === null) {
+				socket.close(1008, 'Invalid active session list');
+				return;
+			}
 			socket.serializeAttachment({ authenticated: true } satisfies GatewayAttachment);
 			for (const existingSocket of this.ctx.getWebSockets('gateway')) {
 				if (existingSocket === socket) {
@@ -105,6 +127,10 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				if (existingAttachment?.authenticated) {
 					existingSocket.close(1012, 'Replaced by a new gateway connection');
 				}
+			}
+			await this.ctx.storage.delete(GATEWAY_DISCONNECTED_AT_KEY);
+			if (activeSessionIds) {
+				await this.reconcileActiveSessions(activeSessionIds);
 			}
 			socket.send(JSON.stringify({ type: 'authenticated' }));
 			await this.dispatchNext(true);
@@ -155,6 +181,33 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 			return;
 		}
 
+		const disconnectedAt = (await this.ctx.storage.get<number>(GATEWAY_DISCONNECTED_AT_KEY)) ?? Date.now();
+		await this.ctx.storage.put(GATEWAY_DISCONNECTED_AT_KEY, disconnectedAt);
+		await this.ctx.storage.setAlarm(disconnectedAt + GATEWAY_DISCONNECT_GRACE_MS);
+	}
+
+	private async reconcileActiveSessions(activeSessionIds: Set<string>): Promise<void> {
+		for (const session of this.ctx.storage.sql.exec<ActiveSessionRow>('SELECT * FROM active_sessions').toArray()) {
+			if (activeSessionIds.has(session.session_id)) {
+				continue;
+			}
+
+			try {
+				await this.env.VOICE_CHANNEL_SESSION.getByName(`${session.guild_id}:${session.channel_id}`).failSessionForGatewayDisconnect(
+					session.session_id,
+				);
+				this.ctx.storage.sql.exec('DELETE FROM active_sessions WHERE session_id = ?', session.session_id);
+			} catch (error) {
+				console.error('[gateway-control] failed to reconcile disconnected gateway session', {
+					sessionId: session.session_id,
+					error: error instanceof Error ? error.name : 'unknown',
+				});
+			}
+		}
+	}
+
+	private async failDisconnectedSessions(): Promise<boolean> {
+		let failed = false;
 		const sessions = new Map<string, ActiveSessionRow>();
 		for (const session of this.ctx.storage.sql.exec<ActiveSessionRow>('SELECT * FROM active_sessions').toArray()) {
 			sessions.set(session.session_id, session);
@@ -179,12 +232,17 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				);
 				this.ctx.storage.sql.exec('DELETE FROM active_sessions WHERE session_id = ?', session.session_id);
 			} catch (error) {
+				failed = true;
 				console.error('[gateway-control] failed to end disconnected gateway session', {
 					sessionId: session.session_id,
 					error: error instanceof Error ? error.name : 'unknown',
 				});
 			}
 		}
+		if (!failed && inFlight) {
+			this.ctx.storage.sql.exec("DELETE FROM commands WHERE command_id = ? AND state = 'in_flight'", inFlight.command_id);
+		}
+		return !failed;
 	}
 
 	webSocketError(socket: WebSocket): void {
@@ -205,7 +263,12 @@ export class GatewayControl extends DurableObject<WorkerEnv> {
 				.exec<CommandRow>("SELECT * FROM commands WHERE state = 'pending' ORDER BY created_at, rowid LIMIT 1")
 				.toArray()[0];
 			if (!row) {
-				await this.ctx.storage.deleteAlarm();
+				const disconnectedAt = await this.ctx.storage.get<number>(GATEWAY_DISCONNECTED_AT_KEY);
+				if (disconnectedAt !== undefined) {
+					await this.ctx.storage.setAlarm(Math.max(Date.now(), disconnectedAt + GATEWAY_DISCONNECT_GRACE_MS));
+				} else {
+					await this.ctx.storage.deleteAlarm();
+				}
 				return;
 			}
 			this.ctx.storage.sql.exec("UPDATE commands SET state = 'in_flight' WHERE command_id = ?", row.command_id);
@@ -260,4 +323,18 @@ function parseFrame(message: string | ArrayBuffer): Record<string, unknown> | nu
 	} catch {
 		return null;
 	}
+}
+
+function parseActiveSessionIds(value: unknown): Set<string> | null {
+	if (!Array.isArray(value)) {
+		return null;
+	}
+	const sessionIds = new Set<string>();
+	for (const sessionId of value) {
+		if (typeof sessionId !== 'string' || sessionIds.has(sessionId)) {
+			return null;
+		}
+		sessionIds.add(sessionId);
+	}
+	return sessionIds;
 }
