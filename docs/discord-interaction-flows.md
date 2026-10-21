@@ -18,9 +18,12 @@ flowchart TD
     D -->|meeting_stop / status / imakinta / meeting_notion_retry| O["録音状態に応じた処理"]
 
     E -->|meeting_setup_notion| N["Notion DB 選択画面を表示"]
-    E -->|meeting_select_notion_database| Q["選択した DB 内の会議ページを表示"]
-    E -->|meeting_retry_notion_pages| R["会議ページ候補を再取得"]
-    E -->|meeting_select_notion_page| S
+    E -->|meeting_select_notion_database| Q["選択した DB と次へ・継続利用設定を表示"]
+    E -->|meeting_toggle_notion_remember| Q
+    E -->|meeting_next_notion_database| R["選択した DB 内の会議ページを表示"]
+    E -->|meeting_retry_notion_pages| T["会議ページ候補を再取得"]
+    E -->|meeting_select_notion_page| S["選択した親ページで録音開始"]
+    E -->|meeting_start_saved_notion| S
     E -->|meeting_setup_cancel| M
     E -->|その他| U["未対応の操作として応答"]
 ```
@@ -32,19 +35,22 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["/meeting"] --> B["保存方法を選ぶ画面を表示"]
-    B -->|Notion に保存| D["Notion DB 候補を表示"]
+    B -->|保存済みの Notion 議事録で開始| H["保存済み親ページでセッションを開始"]
+    B -->|Notion の設定・変更| D["Notion DB 候補を表示"]
     D --> E["DB を選択"]
-    E --> F["DB 内の会議ページ候補を表示"]
-    F --> G["会議ページを選択"]
-    G --> H["セッションを開始または再開"]
-    H --> I{"セッションが starting か"}
-    I -->|いいえ| Z["現在のセッション状態を返す"]
-    I -->|はい| J["Gateway に start を enqueue"]
-    J --> K["Notion 議事録ページを必要に応じて作成"]
-    K --> L["Gateway 接続状態と議事録リンクを返信"]
+    E --> F["継続利用を切り替えて次へ"]
+    F --> G["DB 内の会議ページ候補を表示"]
+    G --> I["会議ページを選択"]
+    I --> H["セッションを開始または再開"]
+    H --> J{"セッションが starting か"}
+    J -->|いいえ| Z["現在のセッション状態を返す"]
+    J -->|はい| K["チェック状態に応じて親ページを保存または解除"]
+    K --> L["Gateway に start を enqueue"]
+    L --> M["Notion 議事録ページを必要に応じて作成"]
+    M --> N["Gateway 接続状態と議事録リンクを返信"]
 ```
 
-`/meeting` では録音ごとに Notion DB とその中の親ページを選びます。VC に Notion DB 設定を保存せず、選んだ親ページを使って録音を開始します。Notion ページの初回作成に失敗しても録音開始要求は維持し、失敗内容を開始時の返信に含めます。
+`/meeting` では Notion DB を選択してから「次へ」を押し、親ページを選びます。継続利用を有効にすると親ページを VC ごとに保存し、次回の `/meeting` で同じ親ページから録音を始められます。保存先を変更するときはチェックを外すと、次回以降の保存先設定を解除できます。Notion ページの初回作成に失敗しても録音開始要求は維持し、失敗内容を開始時の返信に含めます。
 
 ## その他のコマンド
 
@@ -55,4 +61,4 @@ flowchart TD
 | `/imakinta`             | 録音中か、確定文字起こしがあるかを確認して Workers AI で要約                  |
 | `/meeting_notion_retry` | 直近の Notion 出力を再試行できるか確認して実行                                |
 
-セッション状態は VC ごとの Durable Object に保存されます。Interaction をまたぐ DB 選択は画面の `custom_id` で継続し、会議ページを選んだ後に録音セッションを開始します。
+セッション状態と継続利用する親ページは VC ごとの Durable Object に保存されます。Interaction をまたぐ DB 選択と継続利用状態は画面の `custom_id` で継続し、会議ページを選んだ後に録音セッションを開始します。

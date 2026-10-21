@@ -84,7 +84,10 @@ export async function processCommand(
 async function executeCommand(command: ParsedCommand, interactionId: string, env: WorkerEnv): Promise<CommandMessage> {
 	switch (command.action) {
 		case 'meeting':
-			return meetingMessage();
+			return meetingMessage(
+				undefined,
+				Boolean(await env.VOICE_CHANNEL_SESSION.getByName(`${command.guildId}:${command.channelId}`).getDefaultNotionParentPageId()),
+			);
 		case 'start':
 			return startRecording(command, interactionId, env);
 		case 'stop':
@@ -115,6 +118,9 @@ async function startRecording(command: ParsedCommand, interactionId: string, env
 	}
 	if (result.session.state !== 'starting') {
 		return sessionStateMessage(result.session, command.channelId);
+	}
+	if (command.rememberNotionParentPage !== undefined) {
+		await session.setDefaultNotionParentPageId(command.rememberNotionParentPage ? notionParentPageId : null);
 	}
 
 	const queued = await env.GATEWAY_CONTROL.getByName('default').enqueueCommand({

@@ -20,9 +20,52 @@ export async function handleComponentInteraction(
 	const componentContext = parseComponentContext(interaction);
 	if (!componentContext) return interactionMessage('この操作には対応していません。');
 	if (customId?.startsWith('meeting_retry_notion_pages:')) {
-		const dataSourceId = normalizeNotionPageId(customId.slice('meeting_retry_notion_pages:'.length));
+		const [, rawDataSourceId, rememberValue] = customId.match(/^meeting_retry_notion_pages:([^:]+)(?::([01]))?$/) ?? [];
+		const dataSourceId = normalizeNotionPageId(rawDataSourceId);
 		if (!dataSourceId) return interactionMessage('Notion データベースを取得できませんでした。もう一度選択してください。');
-		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env));
+		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env, rememberValue === '1'));
+		return Response.json({ type: 6 });
+	}
+	const nextDatabase = customId?.match(/^meeting_next_notion_database:([^:]+):([01])$/);
+	if (nextDatabase) {
+		const dataSourceId = normalizeNotionPageId(nextDatabase[1]);
+		if (!dataSourceId) return interactionMessage('Notion データベースを候補から選択してください。');
+		ctx.waitUntil(showNotionPagePickerForSelection(interaction, dataSourceId, env, nextDatabase[2] === '1'));
+		return Response.json({ type: 6 });
+	}
+	const toggleRemember = customId?.match(/^meeting_toggle_notion_remember:([^:]+):([01])$/);
+	if (toggleRemember) {
+		const dataSourceId = normalizeNotionPageId(toggleRemember[1]);
+		if (!dataSourceId) return interactionMessage('Notion データベースを候補から選択してください。');
+		ctx.waitUntil(showNotionDatabasePicker(interaction, env, dataSourceId, toggleRemember[2] === '1'));
+		return Response.json({ type: 6 });
+	}
+	const selectedDatabase = customId?.match(/^meeting_select_notion_database(?::([01]))?$/);
+	if (selectedDatabase) {
+		const selectedId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
+		if (!selectedId) return interactionMessage('Notion データベースを候補から選択してください。');
+		ctx.waitUntil(showNotionDatabasePicker(interaction, env, selectedId, selectedDatabase[1] === '1'));
+		return Response.json({ type: 6 });
+	}
+	const selectedPage = customId?.match(/^meeting_select_notion_page(?::([01]))?$/);
+	if (selectedPage) {
+		const notionParentPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
+		if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
+		ctx.waitUntil(
+			processCommand(
+				{
+					action: 'start',
+					guildId: componentContext.guildId,
+					channelId: componentContext.channelId,
+					notionParentPageId,
+					rememberNotionParentPage: selectedPage[1] === '1',
+				},
+				interaction,
+				env,
+				true,
+				true,
+			),
+		);
 		return Response.json({ type: 6 });
 	}
 	switch (customId) {
@@ -46,31 +89,9 @@ export async function handleComponentInteraction(
 		case 'meeting_setup_notion':
 			ctx.waitUntil(showNotionDatabasePicker(interaction, env));
 			return Response.json({ type: 6 });
-		case 'meeting_select_notion_database': {
-			const selectedId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
-			if (!selectedId) return interactionMessage('Notion データベースを候補から選択してください。');
-			ctx.waitUntil(showNotionPagePickerForSelection(interaction, selectedId, env));
+		case 'meeting_start_saved_notion':
+			ctx.waitUntil(startSavedNotionMeeting(interaction, env, componentContext));
 			return Response.json({ type: 6 });
-		}
-		case 'meeting_select_notion_page': {
-			const notionParentPageId = interaction.data?.values?.length === 1 ? normalizeNotionPageId(interaction.data.values[0]) : null;
-			if (!notionParentPageId) return interactionMessage('Notion の親ページを候補から選択してください。');
-			ctx.waitUntil(
-				processCommand(
-					{
-						action: 'start',
-						guildId: componentContext.guildId,
-						channelId: componentContext.channelId,
-						notionParentPageId,
-					},
-					interaction,
-					env,
-					true,
-					true,
-				),
-			);
-			return Response.json({ type: 6 });
-		}
 		case 'meeting_setup_cancel':
 			ctx.waitUntil(showMeetingMessage(interaction, env));
 			return Response.json({ type: 6 });
@@ -98,8 +119,23 @@ function parseComponentContext(interaction: DiscordInteraction): ComponentContex
 	return { guildId, channelId };
 }
 
-async function showNotionDatabasePicker(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
+async function showNotionDatabasePicker(
+	interaction: DiscordInteraction,
+	env: WorkerEnv,
+	selectedDatabaseId?: string,
+	rememberOverride?: boolean,
+): Promise<void> {
 	if (!interaction.token) return;
+	const componentContext = parseComponentContext(interaction);
+	const rememberDefault =
+		rememberOverride ??
+		(componentContext
+			? Boolean(
+					await env.VOICE_CHANNEL_SESSION.getByName(
+						`${componentContext.guildId}:${componentContext.channelId}`,
+					).getDefaultNotionParentPageId(),
+				)
+			: false);
 	if (!env.NOTION_API_TOKEN) {
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
@@ -110,7 +146,17 @@ async function showNotionDatabasePicker(interaction: DiscordInteraction, env: Wo
 	}
 	try {
 		const databases = await searchNotionDataSources(env, '');
-		await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, notionDatabasePickerMessage(databases));
+		const selectedDatabaseExists = selectedDatabaseId && databases.some((database) => database.id === selectedDatabaseId);
+		await editOriginalResponse(
+			env.DISCORD_APPLICATION_ID,
+			interaction.token,
+			notionDatabasePickerMessage(
+				databases,
+				selectedDatabaseId && !selectedDatabaseExists ? '選択したデータベースが見つかりません。もう一度選択してください。' : undefined,
+				selectedDatabaseExists ? selectedDatabaseId : null,
+				rememberDefault,
+			),
+		);
 	} catch (error) {
 		console.error('[notion] database search failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
@@ -121,7 +167,12 @@ async function showNotionDatabasePicker(interaction: DiscordInteraction, env: Wo
 	}
 }
 
-async function showNotionPagePickerForSelection(interaction: DiscordInteraction, databaseId: string, env: WorkerEnv): Promise<void> {
+async function showNotionPagePickerForSelection(
+	interaction: DiscordInteraction,
+	databaseId: string,
+	env: WorkerEnv,
+	rememberForVoiceChannel: boolean,
+): Promise<void> {
 	if (!interaction.token) return;
 	try {
 		const database = await getNotionDataSource(env, databaseId);
@@ -133,7 +184,7 @@ async function showNotionPagePickerForSelection(interaction: DiscordInteraction,
 			);
 			return;
 		}
-		await showNotionPagePicker(interaction, env, database);
+		await showNotionPagePicker(interaction, env, database, rememberForVoiceChannel);
 	} catch (error) {
 		console.error('[notion] database selection failed', error instanceof Error ? error.name : 'unknown error');
 		await editOriginalResponse(
@@ -144,7 +195,12 @@ async function showNotionPagePickerForSelection(interaction: DiscordInteraction,
 	}
 }
 
-async function showNotionPagePicker(interaction: DiscordInteraction, env: WorkerEnv, database: NotionDataSource): Promise<void> {
+async function showNotionPagePicker(
+	interaction: DiscordInteraction,
+	env: WorkerEnv,
+	database: NotionDataSource,
+	rememberForVoiceChannel: boolean,
+): Promise<void> {
 	if (!interaction.token) return;
 	try {
 		const pages = await queryNotionDataSource(env, database, '');
@@ -155,7 +211,7 @@ async function showNotionPagePicker(interaction: DiscordInteraction, env: Worker
 		await editOriginalResponse(
 			env.DISCORD_APPLICATION_ID,
 			interaction.token,
-			notionParentPagePickerMessage(database.title, pages, database.dataSourceId, notice),
+			notionParentPagePickerMessage(database.title, pages, database.dataSourceId, notice, rememberForVoiceChannel),
 		);
 	} catch (error) {
 		console.error('[notion] database page query failed', error instanceof Error ? error.name : 'unknown error');
@@ -167,14 +223,44 @@ async function showNotionPagePicker(interaction: DiscordInteraction, env: Worker
 				[],
 				database.dataSourceId,
 				'データベース内のページを取得できませんでした。時間をおいて再読み込みしてください。',
+				rememberForVoiceChannel,
 			),
 		);
 	}
 }
 
+async function startSavedNotionMeeting(interaction: DiscordInteraction, env: WorkerEnv, componentContext: ComponentContext): Promise<void> {
+	const session = env.VOICE_CHANNEL_SESSION.getByName(`${componentContext.guildId}:${componentContext.channelId}`);
+	const notionParentPageId = await session.getDefaultNotionParentPageId();
+	if (!notionParentPageId) {
+		await showMeetingMessage(interaction, env);
+		return;
+	}
+	await processCommand(
+		{
+			action: 'start',
+			guildId: componentContext.guildId,
+			channelId: componentContext.channelId,
+			notionParentPageId,
+		},
+		interaction,
+		env,
+		true,
+		true,
+	);
+}
+
 async function showMeetingMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {
 	if (!interaction.token) return;
-	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage());
+	const componentContext = parseComponentContext(interaction);
+	const hasSavedNotionParentPage = componentContext
+		? Boolean(
+				await env.VOICE_CHANNEL_SESSION.getByName(
+					`${componentContext.guildId}:${componentContext.channelId}`,
+				).getDefaultNotionParentPageId(),
+			)
+		: false;
+	await editOriginalResponse(env.DISCORD_APPLICATION_ID, interaction.token, meetingMessage(undefined, hasSavedNotionParentPage));
 }
 
 async function showDiscordOnlyUnavailableMessage(interaction: DiscordInteraction, env: WorkerEnv): Promise<void> {

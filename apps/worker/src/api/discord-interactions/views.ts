@@ -29,7 +29,7 @@ export function commandMessageAsComponentsV2(message: CommandMessage): RESTPatch
 	};
 }
 
-export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginalResponseJSONBody {
+export function meetingMessage(notice?: string, useSavedNotionParentPage = false): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	return {
 		flags: MessageFlags.IsComponentsV2,
 		components: [
@@ -48,16 +48,33 @@ export function meetingMessage(notice?: string): RESTPatchAPIInteractionOriginal
 						components: [
 							{
 								type: ComponentType.TextDisplay,
-								content: '**📖 Notion に保存**\n議事録を Notion で整理・管理できます。\n会議ごとに保存先を選んで録音を開始します。',
+								content: useSavedNotionParentPage
+									? '**📖 Notion に保存**\nこのボイスチャットでは、前回と同じ議事録を使えます。'
+									: '**📖 Notion に保存**\n議事録を Notion で整理・管理できます。\n会議ごとに保存先を選んで録音を開始します。',
 							},
 						],
 						accessory: {
 							type: ComponentType.Button,
 							style: ButtonStyle.Primary,
-							label: 'Notion の設定へ →',
-							custom_id: 'meeting_setup_notion',
+							label: useSavedNotionParentPage ? '前回と同じ議事録で開始' : 'Notion の設定へ →',
+							custom_id: useSavedNotionParentPage ? 'meeting_start_saved_notion' : 'meeting_setup_notion',
 						},
 					},
+					...(useSavedNotionParentPage
+						? [
+								{
+									type: ComponentType.ActionRow as const,
+									components: [
+										{
+											type: ComponentType.Button as const,
+											style: ButtonStyle.Secondary,
+											label: '保存先を変更',
+											custom_id: 'meeting_setup_notion',
+										},
+									],
+								},
+							]
+						: []),
 					{
 						type: ComponentType.Section,
 						components: [
@@ -108,6 +125,8 @@ export function discordOnlyUnavailableMessage(): RESTPatchAPIInteractionOriginal
 export function notionDatabasePickerMessage(
 	databases: Array<{ id: string; title: string; parentTitle: string | null }>,
 	notice?: string,
+	selectedDatabaseId?: string | null,
+	rememberDefault = false,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
 		{ type: ComponentType.TextDisplay, content: '## Notion の保存先を選択' },
@@ -119,14 +138,43 @@ export function notionDatabasePickerMessage(
 			components: [
 				{
 					type: ComponentType.StringSelect,
-					custom_id: 'meeting_select_notion_database',
+					custom_id: `meeting_select_notion_database:${rememberDefault ? '1' : '0'}`,
 					placeholder: 'Notion データベースを選択',
 					options: databases.map((database) => ({
 						label: formatNotionDataSourceLabel(database.parentTitle, database.title),
 						value: database.id,
+						...(database.id === selectedDatabaseId ? { default: true } : {}),
 					})),
 					min_values: 1,
 					max_values: 1,
+				},
+			],
+		});
+		components.push({
+			type: ComponentType.ActionRow,
+			components: [
+				{
+					type: ComponentType.Button,
+					style: ButtonStyle.Secondary,
+					label: `${rememberDefault ? '☑' : '☐'} 次回以降もこのボイスチャットではこの議事録を使用する`,
+					custom_id: selectedDatabaseId
+						? `meeting_toggle_notion_remember:${selectedDatabaseId}:${rememberDefault ? '0' : '1'}`
+						: 'meeting_toggle_notion_remember',
+					disabled: !selectedDatabaseId,
+				},
+			],
+		});
+		components.push({
+			type: ComponentType.ActionRow,
+			components: [
+				{
+					type: ComponentType.Button,
+					style: ButtonStyle.Primary,
+					label: '次へ',
+					custom_id: selectedDatabaseId
+						? `meeting_next_notion_database:${selectedDatabaseId}:${rememberDefault ? '1' : '0'}`
+						: 'meeting_next_notion_database',
+					disabled: !selectedDatabaseId,
 				},
 			],
 		});
@@ -170,6 +218,7 @@ export function notionParentPagePickerMessage(
 	pages: Array<{ pageId: string; title: string }>,
 	dataSourceId: string,
 	notice?: string,
+	rememberForVoiceChannel = false,
 ): RESTPatchAPIInteractionOriginalResponseJSONBody {
 	const components: APIComponentInContainer[] = [
 		{ type: ComponentType.TextDisplay, content: '## 録音する会議の親ページを選択' },
@@ -178,6 +227,12 @@ export function notionParentPagePickerMessage(
 			content: `データベース: **${databaseTitle}**\n選んだページの下に AI 議事録を作成し、録音を開始します。`,
 		},
 	];
+	components.push({
+		type: ComponentType.TextDisplay,
+		content: rememberForVoiceChannel
+			? '選んだページを次回以降もこのボイスチャットの保存先として使います。'
+			: '保存先は今回のみ使用します。',
+	});
 	if (notice) components.push({ type: ComponentType.TextDisplay, content: notice });
 	if (pages.length > 0) {
 		components.push({
@@ -185,7 +240,7 @@ export function notionParentPagePickerMessage(
 			components: [
 				{
 					type: ComponentType.StringSelect,
-					custom_id: 'meeting_select_notion_page',
+					custom_id: `meeting_select_notion_page:${rememberForVoiceChannel ? '1' : '0'}`,
 					placeholder: '録音する会議の親ページを選択',
 					options: pages.map((page) => ({ label: page.title.slice(0, 100), value: page.pageId })),
 					min_values: 1,
@@ -202,7 +257,7 @@ export function notionParentPagePickerMessage(
 					type: ComponentType.Button,
 					style: ButtonStyle.Primary,
 					label: '再読み込み',
-					custom_id: `meeting_retry_notion_pages:${dataSourceId}`,
+					custom_id: `meeting_retry_notion_pages:${dataSourceId}:${rememberForVoiceChannel ? '1' : '0'}`,
 				},
 			],
 		});

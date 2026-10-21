@@ -76,6 +76,12 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 					page_url TEXT
 				)
 			`);
+			ctx.storage.sql.exec(`
+				CREATE TABLE IF NOT EXISTS notion_preferences (
+					id INTEGER PRIMARY KEY CHECK (id = 1),
+					parent_page_id TEXT NOT NULL
+				)
+			`);
 			const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(sessions)').toArray();
 			if (!columns.some((column) => column.name === 'notion_parent_page_id')) {
 				ctx.storage.sql.exec('ALTER TABLE sessions ADD COLUMN notion_parent_page_id TEXT');
@@ -214,6 +220,24 @@ export class VoiceChannelSession extends DurableObject<WorkerEnv> {
 	async getLatestSession(): Promise<VoiceSession | null> {
 		const row = this.ctx.storage.sql.exec<SessionRow>('SELECT * FROM sessions ORDER BY created_at DESC LIMIT 1').toArray()[0];
 		return row ? toSession(row) : null;
+	}
+
+	async getDefaultNotionParentPageId(): Promise<string | null> {
+		return (
+			this.ctx.storage.sql.exec<{ parent_page_id: string }>('SELECT parent_page_id FROM notion_preferences WHERE id = 1').toArray()[0]
+				?.parent_page_id ?? null
+		);
+	}
+
+	async setDefaultNotionParentPageId(parentPageId: string | null): Promise<void> {
+		if (!parentPageId) {
+			this.ctx.storage.sql.exec('DELETE FROM notion_preferences WHERE id = 1');
+			return;
+		}
+		this.ctx.storage.sql.exec(
+			'INSERT INTO notion_preferences (id, parent_page_id) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET parent_page_id = excluded.parent_page_id',
+			parentPageId,
+		);
 	}
 
 	async startSession(
